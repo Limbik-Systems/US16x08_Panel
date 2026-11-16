@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- For System.Windows.Forms.NotifyIcon (system-tray icon); WPF has no native tray support -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>US16x08_Panel</AssemblyName>
+    <RootNamespace>US16x08_AbletonPanel</RootNamespace>
+    <ApplicationTitle>TASCAM US-16x08 // DSP &amp; MIDI Console V2</ApplicationTitle>
+    <!-- Single source of the version: build_installer.cmd and the Inno Setup script read it from the published exe -->
+    <Version>2.4.0</Version>
+    <ApplicationIcon>Assets\US16x08_Panel.ico</ApplicationIcon>
+    <Product>US-16x08 DSP &amp; MIDI Console</Product>
+    <AssemblyTitle>US-16x08 DSP &amp; MIDI Console</AssemblyTitle>
+    <Description>Mixer, line-out routing and MIDI router panel for the TASCAM US-16x08</Description>
+    <!-- Assets\make_icon.cs is a standalone file-based script (dotnet run with the file option), not part of the app -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);V1\**;Assets\*.cs</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Embedded so MainWindow's title bar and taskbar button use it too -->
+    <Resource Include="Assets\US16x08_Panel.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UseWindowsForms adds these as implicit global usings; they collide with WPF's Brush/Point/Color/
+         MouseEventArgs/Application. The tray code fully-qualifies every WinForms/Drawing type instead. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+</Project>

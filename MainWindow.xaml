@@ -1,0 +1,1977 @@
+<Window x:Class="US16x08_AbletonPanel.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:controls="clr-namespace:US16x08_AbletonPanel.Controls"
+        mc:Ignorable="d"
+        Title="TASCAM US-16x08 // DSP &amp; MIDI Console V2"
+        Icon="pack://application:,,,/Assets/US16x08_Panel.ico"
+        Width="1560"
+        Height="920"
+        MinWidth="1180"
+        MinHeight="760"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource AbletonWindowBg}"
+        Foreground="{StaticResource AbletonTextPrimary}"
+        FontFamily="Segoe UI">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <!-- Top Ableton Transport & Global Hardware Bar -->
+            <RowDefinition Height="52"/>
+            <!-- Secondary Scene & View Mode Sub-Bar -->
+            <RowDefinition Height="38"/>
+            <!-- Main Workspace Area -->
+            <RowDefinition Height="*"/>
+            <!-- Bottom Ableton Status Bar -->
+            <RowDefinition Height="26"/>
+        </Grid.RowDefinitions>
+
+        <!-- ======================================================================= -->
+        <!-- ROW 0: TOP ABLETON LIVE TRANSPORT & HARDWARE BAR                        -->
+        <!-- ======================================================================= -->
+        <Border Grid.Row="0" Background="#141414" BorderBrush="#2E2E2E" BorderThickness="0,0,0,1" Padding="12,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Brand Title + Connection Pill -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="#FFB000" CornerRadius="2" Padding="7,3" Margin="0,0,8,0">
+                        <TextBlock Text="LIVE DSP V2" Foreground="#121212" FontWeight="Black" FontSize="11"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                        <TextBlock Text="TASCAM US-16x08" FontWeight="Bold" FontSize="14" Foreground="#F2F2F2"/>
+                        <TextBlock Text="16×8 USB AUDIO DSP &amp; MIDI ROUTER" FontSize="9" Foreground="#888888" FontWeight="SemiBold"/>
+                    </StackPanel>
+
+                    <!-- Hardware Status Indicator -->
+                    <Border Background="#222222" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="2" Padding="8,4" Margin="0,0,6,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse Width="8" Height="8" Margin="0,0,6,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="#00D4FF"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsHardwareConnected}" Value="True">
+                                                <Setter Property="Fill" Value="#00E676"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Text="{Binding ConnectionBadgeText}" FontSize="10.5" FontWeight="Bold" Foreground="#E0E0E0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- MIDI Status Indicator -->
+                    <Border Background="#222222" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="2" Padding="8,4" Margin="0,0,6,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse Width="8" Height="8" Fill="#FFB000" Margin="0,0,6,0"/>
+                            <TextBlock Text="{Binding MidiBadgeText}" FontSize="10" FontWeight="Bold" Foreground="#FFB000"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Content="SCAN USB"
+                            Command="{Binding ReconnectHardwareCommand}"
+                            Style="{StaticResource AbletonButtonStyle}"
+                            Margin="0,0,5,0"
+                            ToolTip="Scan Windows SetupAPI KSCATEGORY_RENDER for physical TASCAM US-16x08 interface"/>
+
+                    <Button Content="MIDI PANIC !"
+                            Command="{Binding GlobalMidiPanicCommand}"
+                            Style="{StaticResource AbletonButtonStyle}"
+                            Foreground="#FF5252"
+                            BorderBrush="#883333"
+                            Margin="0,0,4,0"
+                            ToolTip="Send All Notes Off (CC#123) + All Sound Off (CC#120) + Sustain Off (CC#64) on Ch 1-16 to all MIDI Outputs"/>
+                </StackPanel>
+
+                <!-- Audio Clock & ASIO Buffer Controls -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0">
+                    <Border Background="#202020" BorderBrush="#383838" BorderThickness="1" CornerRadius="2" Padding="6,3" Margin="0,0,6,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="RATE" FontSize="9" FontWeight="Bold" Foreground="#888888" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                            <ComboBox ItemsSource="{Binding AvailableSampleRates}"
+                                      SelectedItem="{Binding CurrentSampleRate}"
+                                      Style="{StaticResource AbletonComboBoxStyle}"
+                                      Width="76"/>
+                            <TextBlock Text="Hz" FontSize="9" Foreground="#888888" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#202020" BorderBrush="#383838" BorderThickness="1" CornerRadius="2" Padding="6,3">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="BUFFER" FontSize="9" FontWeight="Bold" Foreground="#888888" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                            <ComboBox ItemsSource="{Binding AvailableBufferSizes}"
+                                      SelectedItem="{Binding AsioBufferSize}"
+                                      Style="{StaticResource AbletonComboBoxStyle}"
+                                      Width="66"/>
+                            <TextBlock Text="{Binding LatencyEstimateText}" FontSize="9.5" FontWeight="SemiBold" Foreground="#FFB000" VerticalAlignment="Center" Margin="6,0,2,0"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Global Hardware Switches (Tag 0x44 & Tag 0x45) -->
+                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ToggleButton Content="COMP OUT &#x2192; STEREO"
+                                  IsChecked="{Binding ComputerToStereoBus}"
+                                  Style="{StaticResource AbletonAmberToggleStyle}"
+                                  Padding="8,5"
+                                  Margin="0,0,6,0"
+                                  ToolTip="TLV Tag 0x44: Route DAW Computer Output 1/2 to the hardware Stereo Master Bus"/>
+
+                    <ToggleButton Content="TRUE BYPASS"
+                                  IsChecked="{Binding TrueBypass}"
+                                  Style="{StaticResource AbletonCyanToggleStyle}"
+                                  Padding="8,5"
+                                  Margin="0,0,6,0"
+                                  ToolTip="TLV Tag 0x45: Bypass onboard DSP mixer and route signals directly"/>
+
+                    <Button Content="CLEAR SOLOS"
+                            Command="{Binding ClearAllSolosCommand}"
+                            Style="{StaticResource AbletonButtonStyle}"
+                            Padding="8,5"
+                            Margin="0,0,5,0"/>
+
+                    <Button Content="UNMUTE ALL"
+                            Command="{Binding UnmuteAllCommand}"
+                            Padding="8,5"
+                            Style="{StaticResource AbletonButtonStyle}"
+                            Margin="0,0,5,0"/>
+
+                    <Button Content="EXPAND ALL"
+                            Command="{Binding ExpandAllTracksCommand}"
+                            Padding="8,5"
+                            Style="{StaticResource AbletonButtonStyle}"
+                            ToolTip="Expand every channel collapsed to a thin strip"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ======================================================================= -->
+        <!-- ROW 1: SCENE MEMORY BANK & VIEW SWITCHER BAR                            -->
+        <!-- ======================================================================= -->
+        <Border Grid.Row="1" Background="#1F1F1F" BorderBrush="#303030" BorderThickness="0,0,0,1" Padding="12,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 10 Scene Memory Preset Controls -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="SCENE MEMORY" FontSize="10" FontWeight="Bold" Foreground="#9A9A9A" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox ItemsSource="{Binding Scenes}"
+                              SelectedItem="{Binding SelectedScene}"
+                              DisplayMemberPath="DisplayTitle"
+                              Style="{StaticResource AbletonComboBoxStyle}"
+                              Width="220"
+                              Margin="0,0,6,0"/>
+
+                    <TextBox Text="{Binding EditableSceneName, UpdateSourceTrigger=PropertyChanged}"
+                             Width="150"
+                             Background="#141414"
+                             Foreground="#FFB000"
+                             BorderBrush="#424242"
+                             BorderThickness="1"
+                             Padding="6,3"
+                             FontSize="11"
+                             FontWeight="SemiBold"
+                             VerticalContentAlignment="Center"
+                             Margin="0,0,6,0"
+                             ToolTip="Scene Name for saving"/>
+
+                    <Button Content="LOAD SCENE"
+                            Command="{Binding LoadSceneCommand}"
+                            Style="{StaticResource AbletonButtonStyle}"
+                            Margin="0,0,4,0"/>
+
+                    <Button Content="SAVE SCENE"
+                            Command="{Binding SaveSceneCommand}"
+                            Style="{StaticResource AbletonButtonStyle}"
+                            Margin="0,0,4,0"/>
+
+                    <Button Content="INIT 0dB"
+                            Command="{Binding InitMixerCommand}"
+                            Style="{StaticResource AbletonButtonStyle}"
+                            Margin="0,0,4,0"/>
+
+                    <Button Content="EXPORT .INI"
+                            Command="{Binding ExportSceneIniCommand}"
+                            Style="{StaticResource AbletonButtonStyle}"/>
+                </StackPanel>
+
+                <!-- Right View Tabs -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <RadioButton Content="1 // MIXER"
+                                 IsChecked="{Binding ActiveTabIndex, Converter={x:Static controls:TabIndexConverter.Instance}, ConverterParameter=0}"
+                                 Style="{StaticResource AbletonAmberToggleStyle}"
+                                 Padding="11,5"
+                                 Margin="0,0,4,0"/>
+                    <RadioButton Content="2 // ROUTING"
+                                 IsChecked="{Binding ActiveTabIndex, Converter={x:Static controls:TabIndexConverter.Instance}, ConverterParameter=1}"
+                                 Style="{StaticResource AbletonAmberToggleStyle}"
+                                 Padding="11,5"
+                                 Margin="0,0,4,0"/>
+                    <RadioButton Content="3 // MIDI"
+                                 IsChecked="{Binding ActiveTabIndex, Converter={x:Static controls:TabIndexConverter.Instance}, ConverterParameter=2}"
+                                 Style="{StaticResource AbletonAmberToggleStyle}"
+                                 Padding="11,5"
+                                 Margin="0,0,4,0"/>
+                    <!-- Display order is MIXER, ROUTING, MIDI, CONTROL, ASIO; ActiveTabIndex keeps 3 = ASIO view, 4 = Control & Sync view. -->
+                    <RadioButton Content="4 // CONTROL"
+                                 IsChecked="{Binding ActiveTabIndex, Converter={x:Static controls:TabIndexConverter.Instance}, ConverterParameter=4}"
+                                 Style="{StaticResource AbletonAmberToggleStyle}"
+                                 Padding="11,5"
+                                 Margin="0,0,4,0"/>
+                    <RadioButton Content="5 // ASIO"
+                                 IsChecked="{Binding ActiveTabIndex, Converter={x:Static controls:TabIndexConverter.Instance}, ConverterParameter=3}"
+                                 Style="{StaticResource AbletonAmberToggleStyle}"
+                                 Padding="11,5"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ======================================================================= -->
+        <!-- ROW 2: MAIN WORKSPACE                                                   -->
+        <!-- ======================================================================= -->
+        <Grid Grid.Row="2">
+
+            <!-- =================================================================== -->
+            <!-- VIEW 0: ABLETON SESSION MIXER (TOP) + DEVICE CHAIN RACK (BOTTOM)    -->
+            <!-- =================================================================== -->
+            <Grid>
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ActiveTabIndex}" Value="0">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+
+                <Grid.RowDefinitions>
+                    <!-- Upper Session View Mixer Strips -->
+                    <RowDefinition Height="*" MinHeight="380"/>
+                    <!-- Splitter -->
+                    <RowDefinition Height="4"/>
+                    <!-- Lower Ableton Live Device Chain Rack -->
+                    <RowDefinition Height="292"/>
+                </Grid.RowDefinitions>
+
+                <!-- UPPER PANE: 16 INPUT STRIPS + MASTER BUS STRIP -->
+                <Grid Grid.Row="0" Background="#1A1A1A" Margin="6,6,6,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 16 Input Channels Horizontal ScrollViewer -->
+                    <ScrollViewer Grid.Column="0"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding Tracks}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <!-- Single Ableton Live Session Channel Strip -->
+                                    <Border Margin="0,0,2,0"
+                                            CornerRadius="2"
+                                            MouseLeftButtonDown="OnTrackStripMouseDown">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Width" Value="84"/>
+                                                <Setter Property="Background" Value="#252525"/>
+                                                <Setter Property="BorderBrush" Value="#363636"/>
+                                                <Setter Property="BorderThickness" Value="1"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                        <Setter Property="Background" Value="#2F2F2F"/>
+                                                        <Setter Property="BorderBrush" Value="#FFB000"/>
+                                                        <Setter Property="BorderThickness" Value="1.5"/>
+                                                    </DataTrigger>
+                                                    <!-- Collapsed = thin strip -->
+                                                    <DataTrigger Binding="{Binding IsCollapsed}" Value="True">
+                                                        <Setter Property="Width" Value="26"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+
+                                        <Grid>
+                                            <!-- FULL STRIP (hidden when the channel is collapsed) -->
+                                            <Grid x:Name="FullStrip">
+                                                <Grid.Style>
+                                                    <Style TargetType="Grid">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsCollapsed}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Grid.Style>
+                                            <Grid.RowDefinitions>
+                                                <!-- Track Color Bar -->
+                                                <RowDefinition Height="6"/>
+                                                <!-- Channel Number & Input Type -->
+                                                <RowDefinition Height="34"/>
+                                                <!-- Editable Track Name -->
+                                                <RowDefinition Height="22"/>
+                                                <!-- Stereo Link / Phase / LowCut Row -->
+                                                <RowDefinition Height="24"/>
+                                                <!-- EQ & Comp Active Status Pills -->
+                                                <RowDefinition Height="20"/>
+                                                <!-- Pan Knob + Readout -->
+                                                <RowDefinition Height="58"/>
+                                                <!-- Fader + Peak Meter + GR Meter -->
+                                                <RowDefinition Height="*"/>
+                                                <!-- Numeric dB Readout -->
+                                                <RowDefinition Height="20"/>
+                                                <!-- Track Activator (Mute) & Solo Row -->
+                                                <RowDefinition Height="30"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- Row 0: Ableton Track Color Bar -->
+                                            <Border Grid.Row="0" Background="{Binding TrackColorHex}" CornerRadius="1,1,0,0"/>
+
+                                            <!-- Row 1: Channel Header -->
+                                            <Border Grid.Row="1" Background="#1E1E1E" Padding="4,2" BorderBrush="#323232" BorderThickness="0,0,0,1">
+                                                <StackPanel>
+                                                    <Grid>
+                                                        <TextBlock Text="{Binding HeaderTitle}" FontWeight="Bold" FontSize="11" Foreground="#F0F0F0"/>
+                                                        <TextBlock Text="{Binding InputTypeLabel}" FontSize="8" Foreground="#888888" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                                                        <Button Content="&#x2039;" Click="OnCollapseTrackClick"
+                                                                ToolTip="Collapse this channel to a thin strip"
+                                                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                                Width="14" Height="14"
+                                                                Style="{StaticResource CollapseButtonStyle}"/>
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding StereoPairLabel, StringFormat='PAIR {0}'}" FontSize="8" Foreground="#686868"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Row 2: Custom Track Label -->
+                                            <TextBox Grid.Row="2"
+                                                     Text="{Binding CustomName, UpdateSourceTrigger=PropertyChanged}"
+                                                     Background="#181818"
+                                                     Foreground="#DADADA"
+                                                     BorderThickness="0,0,0,1"
+                                                     BorderBrush="#333333"
+                                                     FontSize="10"
+                                                     FontWeight="SemiBold"
+                                                     HorizontalContentAlignment="Center"
+                                                     VerticalContentAlignment="Center"/>
+
+                                            <!-- Row 3: Link / Phase / Low Cut Mini Buttons -->
+                                            <UniformGrid Grid.Row="3" Columns="3" Margin="3,2">
+                                                <ToggleButton Content="LNK"
+                                                              IsChecked="{Binding IsStereoLinked}"
+                                                              Style="{StaticResource AbletonCyanToggleStyle}"
+                                                              FontSize="8.5"
+                                                              Margin="1,0"
+                                                              ToolTip="Stereo Link Odd/Even Channel Pair"/>
+                                                <ToggleButton Content="&#x00D8;"
+                                                              IsChecked="{Binding IsPhaseInverted}"
+                                                              Style="{StaticResource AbletonAmberToggleStyle}"
+                                                              FontSize="9.5"
+                                                              Margin="1,0"
+                                                              ToolTip="TLV Tag 0x85: Invert Phase Polarity (180°)"/>
+                                                <ToggleButton Content="LC"
+                                                              IsChecked="{Binding IsLowCutEnabled}"
+                                                              Style="{StaticResource AbletonCyanToggleStyle}"
+                                                              FontSize="8.5"
+                                                              Margin="1,0"
+                                                              ToolTip="TLV Tag 0x52: 100 Hz Low Cut Filter"/>
+                                            </UniformGrid>
+
+                                            <!-- Row 4: EQ & Comp per-channel on/off toggles (lit = enabled) -->
+                                            <UniformGrid Grid.Row="4" Columns="2" Margin="3,1">
+                                                <ToggleButton Content="EQ4"
+                                                              IsChecked="{Binding IsEqEnabled}"
+                                                              Style="{StaticResource StripEqToggleStyle}"
+                                                              Margin="1,1"
+                                                              ToolTip="Enable the 4-band EQ on this channel"/>
+                                                <ToggleButton Content="{Binding DynamicsLabel}"
+                                                              IsChecked="{Binding Compressor.IsEnabled}"
+                                                              Style="{StaticResource StripCompToggleStyle}"
+                                                              Margin="1,1"
+                                                              ToolTip="Enable this channel's dynamics (compressor, or limiter when LIMIT mode is on)"/>
+                                            </UniformGrid>
+
+                                            <!-- Row 5: Pan Rotary Knob + Pan Readout -->
+                                            <StackPanel Grid.Row="5" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                <controls:AbletonKnob Value="{Binding Pan}"
+                                                                      Minimum="-20"
+                                                                      Maximum="20"
+                                                                      DefaultValue="0"
+                                                                      IsBipolar="True"
+                                                                      Width="34"
+                                                                      Height="34"
+                                                                      AccentBrush="{StaticResource AbletonCyan}"
+                                                                      ToolTip="TLV Tag 0x82: Channel Pan (L20 .. C .. R20). Double-click to center."/>
+                                                <TextBlock Text="{Binding PanDisplay}"
+                                                           FontSize="9.5"
+                                                           FontWeight="Bold"
+                                                           Foreground="#B8B8B8"
+                                                           HorizontalAlignment="Center"
+                                                           Margin="0,1,0,0"/>
+                                            </StackPanel>
+
+                                            <!-- Row 6: Vertical Fader + Peak Meter + GR Meter -->
+                                            <Grid Grid.Row="6" Margin="6,2,6,2">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="7"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <controls:AbletonFader Grid.Column="0"
+                                                                       Value="{Binding FaderDb}"
+                                                                       HorizontalAlignment="Center"
+                                                                       VerticalAlignment="Stretch"
+                                                                       Height="Auto"
+                                                                       ToolTip="TLV Tag 0x81: Channel Fader (-inf to +6.0 dB). Double-click for 0.0 dB."/>
+
+                                                <controls:AbletonLevelMeter Grid.Column="1"
+                                                                            Level="{Binding PeakLevelLinear}"
+                                                                            PeakHold="{Binding PeakHoldLinear}"
+                                                                            Width="8"
+                                                                            VerticalAlignment="Stretch"
+                                                                            Height="Auto"
+                                                                            ToolTip="Input Channel Peak &amp; Hold Meter"/>
+
+                                                <controls:AbletonLevelMeter Grid.Column="2"
+                                                                            Level="{Binding Compressor.GainReductionDb}"
+                                                                            IsGainReduction="True"
+                                                                            Width="5"
+                                                                            VerticalAlignment="Stretch"
+                                                                            Height="Auto"
+                                                                            ToolTip="Compressor Gain Reduction Meter (dB)"/>
+                                            </Grid>
+
+                                            <!-- Row 7: Fader dB Box -->
+                                            <Border Grid.Row="7" Background="#161616" BorderBrush="#333333" BorderThickness="1" Margin="4,0,4,2" CornerRadius="2">
+                                                <TextBlock Text="{Binding FaderDisplay}"
+                                                           FontSize="9.5"
+                                                           FontWeight="Bold"
+                                                           Foreground="#FFB000"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"/>
+                                            </Border>
+
+                                            <!-- Row 8: Ableton Track Activator (Amber) + Solo (Cue Blue) -->
+                                            <Grid Grid.Row="8" Margin="4,1,4,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="4"/>
+                                                    <ColumnDefinition Width="26"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <ToggleButton Grid.Column="0"
+                                                              Content="{Binding ChannelNumber}"
+                                                              IsChecked="{Binding IsTrackActive}"
+                                                              Style="{StaticResource AbletonAmberToggleStyle}"
+                                                              ToolTip="TLV Tag 0x83: Track Activator (Lit = On / Unmuted, Dark = Muted)"/>
+
+                                                <ToggleButton Grid.Column="2"
+                                                              Content="S"
+                                                              IsChecked="{Binding IsSolo}"
+                                                              Style="{StaticResource AbletonSoloToggleStyle}"
+                                                              ToolTip="TLV Tag 0x84: Solo Track"/>
+                                            </Grid>
+                                            </Grid>
+                                            <!-- END FULL STRIP -->
+
+                                            <!-- COLLAPSED THIN STRIP (click anywhere to expand) -->
+                                            <Grid x:Name="CollapsedStrip" Background="Transparent" Cursor="Hand"
+                                                  MouseLeftButtonDown="OnExpandTrackClick"
+                                                  ToolTip="Click to expand this channel">
+                                                <Grid.Style>
+                                                    <Style TargetType="Grid">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsCollapsed}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Grid.Style>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="6"/>
+                                                    <RowDefinition Height="*"/>
+                                                    <RowDefinition Height="22"/>
+                                                </Grid.RowDefinitions>
+                                                <Border Grid.Row="0" Background="{Binding TrackColorHex}" CornerRadius="1,1,0,0"/>
+                                                <TextBlock Grid.Row="1" Text="{Binding ChannelNumber}" FontSize="13" FontWeight="Bold"
+                                                           Foreground="#D0D0D0" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0"/>
+                                                <TextBlock Grid.Row="2" Text="&#x203A;" FontSize="15" FontWeight="Bold"
+                                                           Foreground="#FFB000" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <!-- DOCKED RIGHT: MASTER STEREO BUS STRIP -->
+                    <Border Grid.Column="1"
+                            Width="112"
+                            Margin="6,0,0,0"
+                            Background="#262626"
+                            BorderBrush="#FFB000"
+                            BorderThickness="1.5"
+                            CornerRadius="2">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="6"/>
+                                <RowDefinition Height="34"/>
+                                <RowDefinition Height="22"/>
+                                <RowDefinition Height="44"/>
+                                <RowDefinition Height="58"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="20"/>
+                                <RowDefinition Height="30"/>
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.Row="0" Background="#00D4FF" CornerRadius="1,1,0,0"/>
+
+                            <Border Grid.Row="1" Background="#1A1A1A" Padding="6,2" BorderBrush="#333333" BorderThickness="0,0,0,1">
+                                <StackPanel>
+                                    <TextBlock Text="MASTER L/R" FontWeight="Black" FontSize="11" Foreground="#00D4FF"/>
+                                    <TextBlock Text="STEREO BUS" FontSize="8.5" Foreground="#888888"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="#161616" BorderBrush="#303030" BorderThickness="0,0,0,1">
+                                <TextBlock Text="MAIN OUT 1/2" FontSize="9.5" FontWeight="Bold" Foreground="#CCCCCC" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+
+                            <Border Grid.Row="3" Margin="6,4" Background="#1C1C1C" BorderBrush="#343434" BorderThickness="1" CornerRadius="2" Padding="4">
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="USB RETURN" FontSize="8" Foreground="#888888" HorizontalAlignment="Center"/>
+                                    <ToggleButton Content="DAW &#x2192; MST"
+                                                  IsChecked="{Binding ComputerToStereoBus}"
+                                                  Style="{StaticResource AbletonAmberToggleStyle}"
+                                                  Margin="0,2,0,0"
+                                                  Padding="2,2"
+                                                  FontSize="8.5"/>
+                                </StackPanel>
+                            </Border>
+
+                            <StackPanel Grid.Row="4" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <TextBlock Text="SAMPLE RATE" FontSize="8" Foreground="#7A7A7A" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding SampleRateDisplay}" FontSize="12" FontWeight="Black" Foreground="#00E676" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                <TextBlock Text="24-BIT DSP" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                            </StackPanel>
+
+                            <!-- Master Fader + Dual L/R Meters -->
+                            <Grid Grid.Row="5" Margin="10,2,10,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="10"/>
+                                </Grid.ColumnDefinitions>
+
+                                <controls:AbletonFader Grid.Column="0"
+                                                       Value="{Binding MasterFaderDb}"
+                                                       AccentBrush="{StaticResource AbletonCyan}"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Stretch"
+                                                       Height="Auto"
+                                                       ToolTip="TLV Group 2 Tag 0x81: Master Stereo Fader. Double-click for 0.0 dB."/>
+
+                                <controls:AbletonLevelMeter Grid.Column="1"
+                                                            Level="{Binding MasterLeftPeak}"
+                                                            PeakHold="{Binding MasterLeftHold}"
+                                                            Width="8"
+                                                            VerticalAlignment="Stretch"
+                                                            Height="Auto"
+                                                            ToolTip="Master Left Peak Meter"/>
+
+                                <controls:AbletonLevelMeter Grid.Column="2"
+                                                            Level="{Binding MasterRightPeak}"
+                                                            PeakHold="{Binding MasterRightHold}"
+                                                            Width="8"
+                                                            VerticalAlignment="Stretch"
+                                                            Height="Auto"
+                                                            ToolTip="Master Right Peak Meter"/>
+                            </Grid>
+
+                            <Border Grid.Row="6" Background="#161616" BorderBrush="#333333" BorderThickness="1" Margin="6,0,6,2" CornerRadius="2">
+                                <TextBlock Text="{Binding MasterFaderDisplay}"
+                                           FontSize="9.5"
+                                           FontWeight="Bold"
+                                           Foreground="#00D4FF"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                            </Border>
+
+                            <Grid Grid.Row="8" Margin="6,1,6,4">
+                                <ToggleButton Content="MASTER ON"
+                                              IsChecked="{Binding IsMasterActive}"
+                                              Style="{StaticResource AbletonAmberToggleStyle}"
+                                              ToolTip="TLV Group 2 Tag 0x83: Master Stereo Bus Activator"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- SPLITTER -->
+                <GridSplitter Grid.Row="1"
+                              Height="4"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Center"
+                              Background="#121212"/>
+
+                <!-- =============================================================== -->
+                <!-- LOWER PANE: ABLETON LIVE DEVICE CHAIN RACK FOR SELECTED TRACK   -->
+                <!-- =============================================================== -->
+                <Border Grid.Row="2" Background="#1E1E1E" BorderBrush="#333333" BorderThickness="0,1,0,0" Padding="6">
+                    <Grid DataContext="{Binding SelectedTrack}">
+                        <Grid.ColumnDefinitions>
+                            <!-- Device 1: Track Input & High-Pass Filter Stage -->
+                            <ColumnDefinition Width="210"/>
+                            <!-- Device 2: Ableton EQ Four (Parametric EQ + Curve) -->
+                            <ColumnDefinition Width="*"/>
+                            <!-- Device 3: Ableton Compressor (Transfer Curve + GR + Knobs) -->
+                            <ColumnDefinition Width="470"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- DEVICE 1: INPUT & PREAMP / LOW-CUT MODULE -->
+                        <Border Grid.Column="0" Background="#282828" BorderBrush="#3D3D3D" BorderThickness="1" CornerRadius="3" Margin="0,0,6,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="28"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Device Title Bar -->
+                                <Border Grid.Row="0" Background="#333333" CornerRadius="3,3,0,0" Padding="8,0">
+                                    <Grid>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border Width="10" Height="10" CornerRadius="5" Background="{Binding TrackColorHex}" Margin="0,0,6,0"/>
+                                            <TextBlock Text="{Binding HeaderTitle}" FontWeight="Black" FontSize="11" Foreground="#F0F0F0"/>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding InputTypeLabel}" FontSize="9.5" FontWeight="Bold" Foreground="#FFB000" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Device Body -->
+                                <StackPanel Grid.Row="1" Margin="10,8">
+                                    <TextBlock Text="TRACK NAME" FontSize="9" FontWeight="Bold" Foreground="#888888" Margin="0,0,0,3"/>
+                                    <TextBox Text="{Binding CustomName, UpdateSourceTrigger=PropertyChanged}"
+                                             Background="#181818"
+                                             Foreground="#FFFFFF"
+                                             BorderBrush="#424242"
+                                             BorderThickness="1"
+                                             Padding="6,4"
+                                             FontSize="12"
+                                             FontWeight="Bold"
+                                             Margin="0,0,0,10"/>
+
+                                    <TextBlock Text="INPUT STAGE &amp; POLARITY" FontSize="9" FontWeight="Bold" Foreground="#888888" Margin="0,0,0,4"/>
+                                    <ToggleButton Content="STEREO LINK PAIR"
+                                                  IsChecked="{Binding IsStereoLinked}"
+                                                  Style="{StaticResource AbletonCyanToggleStyle}"
+                                                  Padding="8,6"
+                                                  Margin="0,0,0,6"/>
+
+                                    <ToggleButton Content="&#x00D8; PHASE INVERT (180°)"
+                                                  IsChecked="{Binding IsPhaseInverted}"
+                                                  Style="{StaticResource AbletonAmberToggleStyle}"
+                                                  Padding="8,6"
+                                                  Margin="0,0,0,6"/>
+
+                                    <ToggleButton Content="100 Hz LOW CUT (HPF)"
+                                                  IsChecked="{Binding IsLowCutEnabled}"
+                                                  Style="{StaticResource AbletonCyanToggleStyle}"
+                                                  Padding="8,6"
+                                                  Margin="0,0,0,8"/>
+
+                                    <Border Background="#1B1B1B" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Padding="6,4">
+                                        <Grid>
+                                            <TextBlock Text="PEAK LEVEL:" FontSize="9.5" Foreground="#888888" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding PeakDbDisplay, StringFormat='{}{0} dB'}" FontSize="10.5" FontWeight="Bold" Foreground="#00E676" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- DEVICE 2: ABLETON EQ FOUR (EQ EIGHT STYLE) -->
+                        <Border Grid.Column="1" Background="#282828" BorderBrush="#3D3D3D" BorderThickness="1" CornerRadius="3" Margin="0,0,6,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="28"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Device Title Bar -->
+                                <Border Grid.Row="0" Background="#333333" CornerRadius="3,3,0,0" Padding="8,0">
+                                    <Grid>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <ToggleButton Content="ON"
+                                                          IsChecked="{Binding IsEqEnabled}"
+                                                          Style="{StaticResource AbletonAmberToggleStyle}"
+                                                          Padding="6,1"
+                                                          Margin="0,0,8,0"/>
+                                            <TextBlock Text="EQ FOUR // 4-BAND PARAMETRIC DSP EQ" FontWeight="Bold" FontSize="11" Foreground="#F0F0F0" VerticalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                            <TextBlock Text="Drag nodes 1-4  |  Wheel = Q  |  Dbl-Click = 0 dB" FontSize="9.5" Foreground="#909090" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                            <Button Content="FLAT 0dB"
+                                                    Command="{Binding DataContext.ResetSelectedEqCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    Style="{StaticResource AbletonButtonStyle}"
+                                                    Padding="8,2"
+                                                    FontSize="9.5"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <!-- EQ Curve Display + 4 Band Strip Controls -->
+                                <Grid Grid.Row="1" Margin="8,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" MinWidth="260"/>
+                                        <ColumnDefinition Width="340"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Interactive Frequency Response Curve -->
+                                    <controls:EqCurveControl Grid.Column="0"
+                                                             Track="{Binding}"
+                                                             Margin="0,0,8,0"/>
+
+                                    <!-- 4 Band Knobs Matrix -->
+                                    <UniformGrid Grid.Column="1" Columns="4">
+                                        <!-- BAND 1: LOW SHELF -->
+                                        <Border Background="#202020" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Margin="2,0" Padding="4">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <Border Background="#FF5252" CornerRadius="2" Padding="6,1" Margin="0,0,0,4">
+                                                    <TextBlock Text="1 LOW" FontSize="9" FontWeight="Black" Foreground="#121212" HorizontalAlignment="Center"/>
+                                                </Border>
+
+                                                <TextBlock Text="FREQ" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding LowBand.FrequencyHz}"
+                                                                      Minimum="32" Maximum="1000" DefaultValue="100"
+                                                                      IsLogarithmic="True"
+                                                                      Width="34" Height="34"
+                                                                      AccentBrush="#FF5252"/>
+                                                <TextBlock Text="{Binding LowBand.FrequencyDisplay}" FontSize="9.5" FontWeight="Bold" Foreground="#E0E0E0" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+
+                                                <TextBlock Text="GAIN" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding LowBand.GainDb}"
+                                                                      Minimum="-12" Maximum="12" DefaultValue="0"
+                                                                      IsBipolar="True"
+                                                                      Width="34" Height="34"
+                                                                      AccentBrush="#FF5252"/>
+                                                <TextBlock Text="{Binding LowBand.GainDisplay}" FontSize="9.5" FontWeight="Bold" Foreground="#FF5252" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+
+                                                <TextBlock Text="TYPE" FontSize="8.5" Foreground="#666666" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="LOW SHELF" FontSize="8.5" FontWeight="Bold" Foreground="#888888" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- BAND 2: LOW-MID BELL -->
+                                        <Border Background="#202020" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Margin="2,0" Padding="4">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <Border Background="#FFB000" CornerRadius="2" Padding="6,1" Margin="0,0,0,4">
+                                                    <TextBlock Text="2 LO-MID" FontSize="9" FontWeight="Black" Foreground="#121212" HorizontalAlignment="Center"/>
+                                                </Border>
+
+                                                <TextBlock Text="FREQ" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding LowMidBand.FrequencyHz}"
+                                                                      Minimum="32" Maximum="18000" DefaultValue="400"
+                                                                      IsLogarithmic="True"
+                                                                      Width="34" Height="34"
+                                                                      AccentBrush="#FFB000"/>
+                                                <TextBlock Text="{Binding LowMidBand.FrequencyDisplay}" FontSize="9.5" FontWeight="Bold" Foreground="#E0E0E0" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+
+                                                <TextBlock Text="GAIN" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding LowMidBand.GainDb}"
+                                                                      Minimum="-12" Maximum="12" DefaultValue="0"
+                                                                      IsBipolar="True"
+                                                                      Width="34" Height="34"
+                                                                      AccentBrush="#FFB000"/>
+                                                <TextBlock Text="{Binding LowMidBand.GainDisplay}" FontSize="9.5" FontWeight="Bold" Foreground="#FFB000" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+
+                                                <TextBlock Text="Q FACTOR" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding LowMidBand.QFactor}"
+                                                                      Minimum="0.25" Maximum="16.0" DefaultValue="1.0"
+                                                                      IsLogarithmic="True"
+                                                                      Width="28" Height="28"
+                                                                      AccentBrush="#FFB000"/>
+                                                <TextBlock Text="{Binding LowMidBand.QDisplay}" FontSize="9" FontWeight="Bold" Foreground="#CCCCCC" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- BAND 3: HIGH-MID BELL -->
+                                        <Border Background="#202020" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Margin="2,0" Padding="4">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <Border Background="#00E676" CornerRadius="2" Padding="6,1" Margin="0,0,0,4">
+                                                    <TextBlock Text="3 HI-MID" FontSize="9" FontWeight="Black" Foreground="#121212" HorizontalAlignment="Center"/>
+                                                </Border>
+
+                                                <TextBlock Text="FREQ" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding HighMidBand.FrequencyHz}"
+                                                                      Minimum="32" Maximum="18000" DefaultValue="2500"
+                                                                      IsLogarithmic="True"
+                                                                      Width="34" Height="34"
+                                                                      AccentBrush="#00E676"/>
+                                                <TextBlock Text="{Binding HighMidBand.FrequencyDisplay}" FontSize="9.5" FontWeight="Bold" Foreground="#E0E0E0" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+
+                                                <TextBlock Text="GAIN" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding HighMidBand.GainDb}"
+                                                                      Minimum="-12" Maximum="12" DefaultValue="0"
+                                                                      IsBipolar="True"
+                                                                      Width="34" Height="34"
+                                                                      AccentBrush="#00E676"/>
+                                                <TextBlock Text="{Binding HighMidBand.GainDisplay}" FontSize="9.5" FontWeight="Bold" Foreground="#00E676" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+
+                                                <TextBlock Text="Q FACTOR" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding HighMidBand.QFactor}"
+                                                                      Minimum="0.25" Maximum="16.0" DefaultValue="1.0"
+                                                                      IsLogarithmic="True"
+                                                                      Width="28" Height="28"
+                                                                      AccentBrush="#00E676"/>
+                                                <TextBlock Text="{Binding HighMidBand.QDisplay}" FontSize="9" FontWeight="Bold" Foreground="#CCCCCC" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- BAND 4: HIGH SHELF -->
+                                        <Border Background="#202020" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Margin="2,0" Padding="4">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <Border Background="#00D4FF" CornerRadius="2" Padding="6,1" Margin="0,0,0,4">
+                                                    <TextBlock Text="4 HIGH" FontSize="9" FontWeight="Black" Foreground="#121212" HorizontalAlignment="Center"/>
+                                                </Border>
+
+                                                <TextBlock Text="FREQ" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding HighBand.FrequencyHz}"
+                                                                      Minimum="1000" Maximum="18000" DefaultValue="8000"
+                                                                      IsLogarithmic="True"
+                                                                      Width="34" Height="34"
+                                                                      AccentBrush="#00D4FF"/>
+                                                <TextBlock Text="{Binding HighBand.FrequencyDisplay}" FontSize="9.5" FontWeight="Bold" Foreground="#E0E0E0" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+
+                                                <TextBlock Text="GAIN" FontSize="8.5" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <controls:AbletonKnob Value="{Binding HighBand.GainDb}"
+                                                                      Minimum="-12" Maximum="12" DefaultValue="0"
+                                                                      IsBipolar="True"
+                                                                      Width="34" Height="34"
+                                                                      AccentBrush="#00D4FF"/>
+                                                <TextBlock Text="{Binding HighBand.GainDisplay}" FontSize="9.5" FontWeight="Bold" Foreground="#00D4FF" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+
+                                                <TextBlock Text="TYPE" FontSize="8.5" Foreground="#666666" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="HI SHELF" FontSize="8.5" FontWeight="Bold" Foreground="#888888" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </UniformGrid>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <!-- DEVICE 3: ABLETON COMPRESSOR MODULE -->
+                        <Border Grid.Column="2" Background="#282828" BorderBrush="#3D3D3D" BorderThickness="1" CornerRadius="3">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="28"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Device Title Bar -->
+                                <Border Grid.Row="0" Background="#333333" CornerRadius="3,3,0,0" Padding="8,0">
+                                    <Grid>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <ToggleButton Content="ON"
+                                                          IsChecked="{Binding Compressor.IsEnabled}"
+                                                          Style="{StaticResource AbletonAmberToggleStyle}"
+                                                          Padding="6,1"
+                                                          Margin="0,0,8,0"/>
+                                            <ToggleButton Content="LIMIT"
+                                                          IsChecked="{Binding Compressor.IsLimiterMode}"
+                                                          Style="{StaticResource AbletonCyanToggleStyle}"
+                                                          Padding="6,1"
+                                                          Margin="0,0,8,0"
+                                                          ToolTip="Brickwall limiter mode: ∞:1 ratio, 2 ms attack, Threshold becomes the ceiling (reuses this channel's dynamics block)"/>
+                                            <TextBlock Text="{Binding Compressor.DynamicsTitle}" FontWeight="Bold" FontSize="11" Foreground="#F0F0F0" VerticalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <Button Content="RESET"
+                                                Command="{Binding DataContext.ResetSelectedCompCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                Style="{StaticResource AbletonButtonStyle}"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Center"
+                                                Padding="8,2"
+                                                FontSize="9.5"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Compressor Body -->
+                                <Grid Grid.Row="1" Margin="8,6">
+                                    <Grid.ColumnDefinitions>
+                                        <!-- Transfer Curve -->
+                                        <ColumnDefinition Width="164"/>
+                                        <!-- Vertical GR Meter -->
+                                        <ColumnDefinition Width="50"/>
+                                        <!-- 5 Parameter Knobs -->
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <controls:CompressorCurveControl Grid.Column="0"
+                                                                     Track="{Binding}"
+                                                                     ToolTip="Compressor Transfer Curve — Drag horizontally to set Threshold"/>
+
+                                    <!-- Dedicated Gain Reduction Bar -->
+                                    <Border Grid.Column="1" Background="#1B1B1B" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Margin="5,0" Padding="2,4">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Text="GR" FontSize="8.5" FontWeight="Black" Foreground="#FF9100" HorizontalAlignment="Center" Margin="0,0,0,3"/>
+                                            <controls:AbletonLevelMeter Grid.Row="1"
+                                                                        Level="{Binding Compressor.GainReductionDb}"
+                                                                        IsGainReduction="True"
+                                                                        Width="12"
+                                                                        HorizontalAlignment="Center"
+                                                                        VerticalAlignment="Stretch"
+                                                                        Height="Auto"/>
+                                            <TextBlock Grid.Row="2"
+                                                       Text="{Binding Compressor.GainReductionDisplay}"
+                                                       FontSize="8"
+                                                       FontWeight="Bold"
+                                                       Foreground="#FF9100"
+                                                       HorizontalAlignment="Center"
+                                                       Margin="0,3,0,0"/>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 5 Rotary Knobs: Threshold, Ratio, Attack, Release, Makeup Gain -->
+                                    <Grid Grid.Column="2">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Threshold -->
+                                        <StackPanel Grid.Row="0" Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Compressor.ThresholdLabel}" FontSize="9" FontWeight="Bold" Foreground="#999999" HorizontalAlignment="Center"/>
+                                            <controls:AbletonKnob Value="{Binding Compressor.ThresholdDb}"
+                                                                  Minimum="-32" Maximum="0" DefaultValue="-16"
+                                                                  Width="38" Height="38"
+                                                                  AccentBrush="{StaticResource AbletonCyan}"/>
+                                            <TextBlock Text="{Binding Compressor.ThresholdDisplay}" FontSize="10" FontWeight="Bold" Foreground="#00D4FF" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Ratio (locked at ∞:1 in limiter mode) -->
+                                        <StackPanel Grid.Row="0" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Compressor.IsLimiterMode}" Value="True">
+                                                            <Setter Property="Opacity" Value="0.35"/>
+                                                            <Setter Property="IsHitTestVisible" Value="False"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+                                            <TextBlock Text="RATIO" FontSize="9" FontWeight="Bold" Foreground="#999999" HorizontalAlignment="Center"/>
+                                            <controls:AbletonKnob Value="{Binding Compressor.RatioKnobValue}"
+                                                                  Minimum="0" Maximum="13" DefaultValue="5"
+                                                                  Width="38" Height="38"
+                                                                  AccentBrush="{StaticResource AbletonAmber}"/>
+                                            <TextBlock Text="{Binding Compressor.RatioDisplay}" FontSize="10" FontWeight="Bold" Foreground="#FFB000" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Makeup Gain -->
+                                        <StackPanel Grid.Row="0" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="MAKEUP" FontSize="9" FontWeight="Bold" Foreground="#999999" HorizontalAlignment="Center"/>
+                                            <controls:AbletonKnob Value="{Binding Compressor.MakeupGainDb}"
+                                                                  Minimum="0" Maximum="20" DefaultValue="0"
+                                                                  Width="38" Height="38"
+                                                                  AccentBrush="{StaticResource AbletonGreen}"/>
+                                            <TextBlock Text="{Binding Compressor.MakeupGainDisplay}" FontSize="10" FontWeight="Bold" Foreground="#00E676" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Attack (locked at 2 ms in limiter mode) -->
+                                        <StackPanel Grid.Row="1" Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Compressor.IsLimiterMode}" Value="True">
+                                                            <Setter Property="Opacity" Value="0.35"/>
+                                                            <Setter Property="IsHitTestVisible" Value="False"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+                                            <TextBlock Text="ATTACK" FontSize="9" FontWeight="Bold" Foreground="#999999" HorizontalAlignment="Center"/>
+                                            <controls:AbletonKnob Value="{Binding Compressor.AttackMs}"
+                                                                  Minimum="2" Maximum="200" DefaultValue="20"
+                                                                  Width="38" Height="38"
+                                                                  AccentBrush="{StaticResource AbletonAmber}"/>
+                                            <TextBlock Text="{Binding Compressor.AttackDisplay}" FontSize="10" FontWeight="Bold" Foreground="#E0E0E0" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Release -->
+                                        <StackPanel Grid.Row="1" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="RELEASE" FontSize="9" FontWeight="Bold" Foreground="#999999" HorizontalAlignment="Center"/>
+                                            <controls:AbletonKnob Value="{Binding Compressor.ReleaseMs}"
+                                                                  Minimum="10" Maximum="1000" DefaultValue="100"
+                                                                  Width="38" Height="38"
+                                                                  AccentBrush="{StaticResource AbletonAmber}"/>
+                                            <TextBlock Text="{Binding Compressor.ReleaseDisplay}" FontSize="10" FontWeight="Bold" Foreground="#E0E0E0" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Sidechain Link Info -->
+                                        <Border Grid.Row="1" Grid.Column="2" Background="#1E1E1E" BorderBrush="#383838" BorderThickness="1" CornerRadius="2" Margin="4,8" Padding="4">
+                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                <TextBlock Text="DETECTOR" FontSize="8" Foreground="#888888" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="RMS / PEAK" FontSize="9" FontWeight="Bold" Foreground="#FFB000" HorizontalAlignment="Center" Margin="0,2"/>
+                                                <ToggleButton Content="STEREO LINK"
+                                                              IsChecked="{Binding IsStereoLinked}"
+                                                              Style="{StaticResource AbletonCyanToggleStyle}"
+                                                              FontSize="8"
+                                                              Padding="4,2"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- =================================================================== -->
+            <!-- VIEW 1: LINE OUT 1-8 VISUAL PATCHBAY & CROSSPOINT MATRIX            -->
+            <!-- =================================================================== -->
+            <Border Background="#1A1A1A" Padding="18">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ActiveTabIndex}" Value="1">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header + Quick Routing Presets -->
+                    <Border Grid.Row="0" Background="#252525" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,0,0,14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="LINE OUT 1–8 VISUAL HARDWARE PATCHBAY &amp; 10×8 CROSSPOINT MATRIX" FontSize="14" FontWeight="Black" Foreground="#FFB000"/>
+                                <TextBlock Text="Drag virtual 1/4&quot; TRS patch cables between Sources and Line Outputs, or click any intersection in the 10×8 Crosspoint Matrix."
+                                           FontSize="11" Foreground="#B0B0B0" Margin="0,3,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="STUDIO DEFAULT (1-2 MASTER, 3-8 DAW)"
+                                        Command="{Binding ApplyRoutingPresetCommand}"
+                                        CommandParameter="Studio"
+                                        Style="{StaticResource AbletonButtonStyle}"
+                                        Margin="0,0,8,0"/>
+                                <Button Content="8-CH DAW STEMS (1-8 DIRECT)"
+                                        Command="{Binding ApplyRoutingPresetCommand}"
+                                        CommandParameter="DirectDAW"
+                                        Style="{StaticResource AbletonButtonStyle}"
+                                        Margin="0,0,8,0"/>
+                                <Button Content="ALL MASTER L/R MIRROR"
+                                        Command="{Binding ApplyRoutingPresetCommand}"
+                                        CommandParameter="AllMaster"
+                                        Style="{StaticResource AbletonButtonStyle}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Interactive Visual Cable Patchbay + 10x8 Crosspoint Matrix -->
+                    <controls:RoutingPatchbayControl Grid.Row="1"
+                                                     Routes="{Binding LineOutRoutes}"/>
+                </Grid>
+            </Border>
+
+            <!-- =================================================================== -->
+            <!-- VIEW 2: USB & 5-PIN DIN MIDI PATCHBAY, CHANNEL REMAP & LIVE MONITOR -->
+            <!-- =================================================================== -->
+            <Border Background="#1A1A1A" Padding="14,10">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ActiveTabIndex}" Value="2">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <!-- Header & Studio MIDI Presets -->
+                        <RowDefinition Height="Auto"/>
+                        <!-- Visual MIDI Patchbay + Many-to-Many Crosspoint Matrix -->
+                        <RowDefinition Height="*"/>
+                        <!-- Bottom Rack: Per-Route Channel Filter/Remap + Live MIDI Event Monitor -->
+                        <RowDefinition Height="240"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Row 0: Header + Studio Presets + Global Panic -->
+                    <Border Grid.Row="0" Background="#252525" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="3" Padding="14,8" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="USB &amp; 5-PIN DIN MIDI PATCHBAY // ROUTER &amp; CHANNEL PROCESSOR"
+                                               FontSize="13" FontWeight="Black" Foreground="#FFB000"/>
+                                    <Border Background="#161616" BorderBrush="#383838" BorderThickness="1" CornerRadius="2" Padding="8,2" Margin="10,0,0,0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="CLOCK: " FontSize="9.5" FontWeight="Bold" Foreground="#888888"/>
+                                            <TextBlock Text="{Binding MidiClockDisplay}" FontSize="9.5" FontWeight="Black" Foreground="#00D4FF"/>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="Drag MIDI cables between jacks, click matrix cells to toggle patches, or click any cable badge to edit Channel Filter &amp; Remap."
+                                           FontSize="10" Foreground="#B0B0B0" Margin="0,2,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="LAUNCHKEY &#x2192; ALL SYNTHS"
+                                        Command="{Binding ApplyMidiPresetCommand}"
+                                        CommandParameter="LaunchkeyAllSynths"
+                                        Style="{StaticResource AbletonButtonStyle}"
+                                        Margin="0,0,6,0"
+                                        ToolTip="Route Launchkey MK4 49 MIDI to US-16x08 DIN and all connected USB hardware synths"/>
+                                <Button Content="US-16x08 DIN &#x2194; USB BRIDGE"
+                                        Command="{Binding ApplyMidiPresetCommand}"
+                                        CommandParameter="DinToUsbBridge"
+                                        Style="{StaticResource AbletonButtonStyle}"
+                                        Margin="0,0,6,0"
+                                        ToolTip="Bridge TASCAM US-16x08 5-pin DIN MIDI In to all USB Synths, and Launchkey to US-16x08 5-pin DIN Out"/>
+                                <Button Content="KEY SPLIT @ C4"
+                                        Command="{Binding ApplyMidiPresetCommand}"
+                                        CommandParameter="SplitSynthStack"
+                                        Style="{StaticResource AbletonButtonStyle}"
+                                        Margin="0,0,6,0"
+                                        ToolTip="Split keyboard at Middle C (C4 / Note 60): Lower Bass Synths (C-1..B3) and Upper Lead Synths (C4..G9)"/>
+                                <Button Content="CLEAR PATCHES"
+                                        Command="{Binding ApplyMidiPresetCommand}"
+                                        CommandParameter="ClearAll"
+                                        Style="{StaticResource AbletonButtonStyle}"
+                                        Margin="0,0,6,0"/>
+                                <Button Content="RESCAN MIDI"
+                                        Command="{Binding RescanMidiPortsCommand}"
+                                        Style="{StaticResource AbletonButtonStyle}"
+                                        Margin="0,0,6,0"/>
+                                <Button Content="ALL NOTES OFF (PANIC !)"
+                                        Command="{Binding GlobalMidiPanicCommand}"
+                                        Style="{StaticResource AbletonButtonStyle}"
+                                        Foreground="#FF5252"
+                                        BorderBrush="#993333"
+                                        FontWeight="Black"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Row 1: Interactive Visual MIDI Patchbay + Many-to-Many Crosspoint Matrix -->
+                    <controls:MidiPatchbayControl x:Name="MidiPatchbay"
+                                                  Grid.Row="1"
+                                                  Margin="0,0,0,8"
+                                                  InputPorts="{Binding MidiInputPorts}"
+                                                  OutputPorts="{Binding MidiOutputPorts}"
+                                                  Routes="{Binding MidiRoutes}"
+                                                  SelectedRoute="{Binding SelectedMidiRoute, Mode=TwoWay}"/>
+
+                    <!-- Row 2: Bottom Rack (Left: Per-Route Channel Filter & Remap Inspector | Right: Live MIDI Activity Monitor) -->
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.25*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="1.0*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- LEFT: Per-Route Channel Filtering, Remapping, Key Split & Message Filter Inspector -->
+                        <Border Grid.Column="0" Background="#232323" BorderBrush="#3B3B3B" BorderThickness="1" CornerRadius="3" Padding="12,9">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Inspector Top Row: Route Selector + Quick Route Actions -->
+                                <Grid Grid.Row="0" Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                                        <Border Background="#FFB000" Width="4" Height="16" CornerRadius="1" Margin="0,0,7,0"/>
+                                        <TextBlock Text="ROUTE FILTER &amp; CHANNEL REMAP" FontSize="11.5" FontWeight="Black" Foreground="#FFB000" VerticalAlignment="Center"/>
+                                    </StackPanel>
+
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding MidiRoutes}"
+                                              SelectedItem="{Binding SelectedMidiRoute}"
+                                              DisplayMemberPath="RouteTitle"
+                                              Style="{StaticResource AbletonComboBoxStyle}"
+                                              Margin="0,0,8,0"/>
+
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
+                                                IsEnabled="{Binding HasSelectedMidiRoute}">
+                                        <ToggleButton Content="ROUTE ACTIVE"
+                                                      IsChecked="{Binding SelectedMidiRoute.IsEnabled}"
+                                                      Style="{StaticResource AbletonAmberToggleStyle}"
+                                                      Padding="8,3"
+                                                      Margin="0,0,5,0"/>
+                                        <Button Content="TEST C4"
+                                                Command="{Binding AuditionMidiPortCommand}"
+                                                Style="{StaticResource AbletonButtonStyle}"
+                                                Padding="8,3"
+                                                Margin="0,0,5,0"
+                                                ToolTip="Send a 240ms C4 test note to this route's destination synth"/>
+                                        <Button Content="PORT PANIC"
+                                                Command="{Binding PortMidiPanicCommand}"
+                                                Style="{StaticResource AbletonButtonStyle}"
+                                                Foreground="#FF5252"
+                                                Padding="8,3"
+                                                Margin="0,0,5,0"
+                                                ToolTip="Send All Notes Off (CC#123) to this route's destination port"/>
+                                        <Button Content="RESET"
+                                                Command="{Binding ResetSelectedMidiRouteFilterCommand}"
+                                                Style="{StaticResource AbletonButtonStyle}"
+                                                Padding="8,3"
+                                                Margin="0,0,5,0"/>
+                                        <Button Content="REMOVE"
+                                                Command="{Binding RemoveSelectedMidiRouteCommand}"
+                                                Style="{StaticResource AbletonButtonStyle}"
+                                                Padding="8,3"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Row 1: Channel Filter, Channel Remap, Semitone Transpose & Note Range Split -->
+                                <Border Grid.Row="1" Background="#1A1A1A" BorderBrush="#323232" BorderThickness="1" CornerRadius="2" Padding="10,8" Margin="0,0,0,8"
+                                        IsEnabled="{Binding HasSelectedMidiRoute}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="1.15*"/>
+                                            <ColumnDefinition Width="1.25*"/>
+                                            <ColumnDefinition Width="1.25*"/>
+                                            <ColumnDefinition Width="1.15*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Source Channel Filter -->
+                                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                            <TextBlock Text="SOURCE CHANNEL FILTER" FontSize="9" FontWeight="Bold" Foreground="#9A9A9A" Margin="0,0,0,4"/>
+                                            <ComboBox ItemsSource="{Binding AvailableSourceChannelFilters}"
+                                                      SelectedIndex="{Binding SelectedMidiRoute.SourceChannelFilter}"
+                                                      Style="{StaticResource AbletonComboBoxStyle}"/>
+                                            <TextBlock Text="Only pass input matching Ch" FontSize="8.5" Foreground="#686868" Margin="0,3,0,0"/>
+                                        </StackPanel>
+
+                                        <!-- Destination Channel Remap -->
+                                        <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                                            <TextBlock Text="DESTINATION CHANNEL REMAP" FontSize="9" FontWeight="Bold" Foreground="#00D4FF" Margin="0,0,0,4"/>
+                                            <ComboBox ItemsSource="{Binding AvailableTargetChannelRemaps}"
+                                                      SelectedIndex="{Binding SelectedMidiRoute.TargetChannelRemap}"
+                                                      Style="{StaticResource AbletonComboBoxStyle}"/>
+                                            <TextBlock Text="Rewrite outgoing MIDI channel" FontSize="8.5" Foreground="#686868" Margin="0,3,0,0"/>
+                                        </StackPanel>
+
+                                        <!-- Semitone / Octave Transpose -->
+                                        <StackPanel Grid.Column="2" Margin="0,0,10,0">
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                                <TextBlock Text="TRANSPOSE: " FontSize="9" FontWeight="Bold" Foreground="#9A9A9A"/>
+                                                <TextBlock Text="{Binding SelectedMidiRoute.TransposeDisplay}" FontSize="9.5" FontWeight="Black" Foreground="#FFB000"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Content="-12 OCT" Command="{Binding TransposeOctaveCommand}" CommandParameter="-12" Style="{StaticResource AbletonButtonStyle}" Padding="6,2" Margin="0,0,4,0"/>
+                                                <Button Content="-1" Command="{Binding TransposeOctaveCommand}" CommandParameter="-1" Style="{StaticResource AbletonButtonStyle}" Padding="6,2" Margin="0,0,4,0"/>
+                                                <Button Content="0" Command="{Binding TransposeOctaveCommand}" CommandParameter="0" Style="{StaticResource AbletonButtonStyle}" Padding="6,2" Margin="0,0,4,0"/>
+                                                <Button Content="+1" Command="{Binding TransposeOctaveCommand}" CommandParameter="1" Style="{StaticResource AbletonButtonStyle}" Padding="6,2" Margin="0,0,4,0"/>
+                                                <Button Content="+12 OCT" Command="{Binding TransposeOctaveCommand}" CommandParameter="12" Style="{StaticResource AbletonButtonStyle}" Padding="6,2"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Shifts Note On/Off (-36..+36 ST)" FontSize="8.5" Foreground="#686868" Margin="0,3,0,0"/>
+                                        </StackPanel>
+
+                                        <!-- Keyboard Split / Note Range -->
+                                        <StackPanel Grid.Column="3">
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                                <TextBlock Text="KEY ZONE: " FontSize="9" FontWeight="Bold" Foreground="#9A9A9A"/>
+                                                <TextBlock Text="{Binding SelectedMidiRoute.MinNoteDisplay}" FontSize="9" FontWeight="Bold" Foreground="#00E676"/>
+                                                <TextBlock Text=" .. " FontSize="9" Foreground="#888888"/>
+                                                <TextBlock Text="{Binding SelectedMidiRoute.MaxNoteDisplay}" FontSize="9" FontWeight="Bold" Foreground="#00E676"/>
+                                            </StackPanel>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Slider Grid.Column="0" Minimum="0" Maximum="127" Value="{Binding SelectedMidiRoute.MinNote}" TickFrequency="1" IsSnapToTickEnabled="True" ToolTip="Lowest MIDI Note passed"/>
+                                                <Slider Grid.Column="2" Minimum="0" Maximum="127" Value="{Binding SelectedMidiRoute.MaxNote}" TickFrequency="1" IsSnapToTickEnabled="True" ToolTip="Highest MIDI Note passed"/>
+                                            </Grid>
+                                            <TextBlock Text="Low / High Note Split Filter" FontSize="8.5" Foreground="#686868" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Row 2: Message Type Filter Toggles -->
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" VerticalAlignment="Center"
+                                            IsEnabled="{Binding HasSelectedMidiRoute}">
+                                    <TextBlock Text="PASS MESSAGES:" FontSize="9.5" FontWeight="Bold" Foreground="#9A9A9A" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ToggleButton Content="NOTES (ON/OFF)"
+                                                  IsChecked="{Binding SelectedMidiRoute.PassNotes}"
+                                                  Style="{StaticResource AbletonAmberToggleStyle}"
+                                                  Padding="9,4" Margin="0,0,5,0"/>
+                                    <ToggleButton Content="CONTROL CHG (CC)"
+                                                  IsChecked="{Binding SelectedMidiRoute.PassControlChange}"
+                                                  Style="{StaticResource AbletonAmberToggleStyle}"
+                                                  Padding="9,4" Margin="0,0,5,0"/>
+                                    <ToggleButton Content="PITCH BEND"
+                                                  IsChecked="{Binding SelectedMidiRoute.PassPitchBend}"
+                                                  Style="{StaticResource AbletonAmberToggleStyle}"
+                                                  Padding="9,4" Margin="0,0,5,0"/>
+                                    <ToggleButton Content="AFTERTOUCH"
+                                                  IsChecked="{Binding SelectedMidiRoute.PassAftertouch}"
+                                                  Style="{StaticResource AbletonAmberToggleStyle}"
+                                                  Padding="9,4" Margin="0,0,5,0"/>
+                                    <ToggleButton Content="PROGRAM CHG"
+                                                  IsChecked="{Binding SelectedMidiRoute.PassProgramChange}"
+                                                  Style="{StaticResource AbletonAmberToggleStyle}"
+                                                  Padding="9,4" Margin="0,0,5,0"/>
+                                    <ToggleButton Content="CLOCK &amp; TRANSPORT (0xF8)"
+                                                  IsChecked="{Binding SelectedMidiRoute.PassClockAndTransport}"
+                                                  Style="{StaticResource AbletonCyanToggleStyle}"
+                                                  Padding="9,4" Margin="0,0,5,0"/>
+                                    <ToggleButton Content="SYSEX"
+                                                  IsChecked="{Binding SelectedMidiRoute.PassSysEx}"
+                                                  Style="{StaticResource AbletonCyanToggleStyle}"
+                                                  Padding="9,4"/>
+                                </StackPanel>
+
+                                <!-- Row 3: Summary Line -->
+                                <Border Grid.Row="3" Background="#161616" BorderBrush="#2E2E2E" BorderThickness="1" CornerRadius="2" Padding="8,4" Margin="0,8,0,0">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="ACTIVE RULE SUMMARY // " FontSize="9" FontWeight="Bold" Foreground="#888888"/>
+                                        <TextBlock Text="{Binding SelectedMidiRoute.RouteTitle, FallbackValue='Select or create a MIDI patch cable above'}" FontSize="9.5" FontWeight="Bold" Foreground="#E0E0E0" Margin="0,0,10,0"/>
+                                        <TextBlock Text="{Binding SelectedMidiRoute.FilterSummary}" FontSize="9.5" FontWeight="Black" Foreground="#00D4FF" Margin="0,0,14,0"/>
+                                        <TextBlock Text="ROUTED EVENTS: " FontSize="9" FontWeight="Bold" Foreground="#888888"/>
+                                        <TextBlock Text="{Binding SelectedMidiRoute.RoutedCount, FallbackValue=0}" FontSize="9.5" FontWeight="Bold" Foreground="#00E676"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
+
+                        <!-- RIGHT: Live MIDI Activity Monitor & Event Decoder -->
+                        <Border Grid.Column="2" Background="#232323" BorderBrush="#3B3B3B" BorderThickness="1" CornerRadius="3" Padding="12,9">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0" Margin="0,0,0,6">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border Background="#00E676" Width="4" Height="16" CornerRadius="1" Margin="0,0,7,0"/>
+                                        <TextBlock Text="LIVE MIDI ACTIVITY MONITOR" FontSize="11.5" FontWeight="Black" Foreground="#00E676" VerticalAlignment="Center"/>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                        <ToggleButton Content="HIDE 0xF8 CLOCK"
+                                                      IsChecked="{Binding FilterMidiClockFromLog}"
+                                                      Style="{StaticResource AbletonCyanToggleStyle}"
+                                                      Padding="7,2"
+                                                      Margin="0,0,5,0"
+                                                      ToolTip="Filter high-frequency 24 PPQN MIDI Timing Clock (0xF8) ticks from scrolling the monitor"/>
+                                        <ToggleButton Content="PAUSE"
+                                                      IsChecked="{Binding IsMidiMonitorPaused}"
+                                                      Style="{StaticResource AbletonAmberToggleStyle}"
+                                                      Padding="7,2"
+                                                      Margin="0,0,5,0"/>
+                                        <Button Content="CLEAR"
+                                                Command="{Binding ClearMidiMonitorCommand}"
+                                                Style="{StaticResource AbletonButtonStyle}"
+                                                Padding="7,2"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Border Grid.Row="1" Background="#121212" BorderBrush="#303030" BorderThickness="1" CornerRadius="2" Padding="4">
+                                    <ListBox ItemsSource="{Binding MidiEventLog}"
+                                             Background="Transparent"
+                                             BorderThickness="0"
+                                             FontFamily="Consolas"
+                                             FontSize="10">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding FormattedLine}"
+                                                           Foreground="{Binding AccentHex}"
+                                                           Margin="0,0.5"/>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- =================================================================== -->
+            <!-- VIEW 3: INTERFACE / ASIO SETTINGS & LIVE USB TLV PACKET INSPECTOR   -->
+            <!-- =================================================================== -->
+            <Border Background="#1A1A1A" Padding="24">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ActiveTabIndex}" Value="3">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+
+                <Grid MaxWidth="1220" HorizontalAlignment="Stretch">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="420"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left Column: Hardware & ASIO Driver Configuration -->
+                    <Border Grid.Column="0" Background="#252525" BorderBrush="#3D3D3D" BorderThickness="1" CornerRadius="3" Padding="18">
+                        <StackPanel>
+                            <TextBlock Text="HARDWARE &amp; ASIO DRIVER CONFIGURATION" FontSize="13" FontWeight="Black" Foreground="#FFB000" Margin="0,0,0,14"/>
+
+                            <TextBlock Text="KERNEL STREAMING DEVICE HANDLE PATH" FontSize="9.5" FontWeight="Bold" Foreground="#888888"/>
+                            <Border Background="#161616" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Padding="8,6" Margin="0,4,0,12">
+                                <TextBlock Text="{Binding DevicePathText}" FontSize="10.5" FontFamily="Consolas" Foreground="#00D4FF" TextWrapping="Wrap"/>
+                            </Border>
+
+                            <UniformGrid Columns="2" Margin="0,0,0,12">
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Text="FIRMWARE VERSION" FontSize="9.5" FontWeight="Bold" Foreground="#888888"/>
+                                    <Border Background="#161616" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Padding="8,6" Margin="0,4,0,0">
+                                        <TextBlock Text="{Binding FirmwareVersionText}" FontSize="11" FontWeight="Bold" Foreground="#E0E0E0"/>
+                                    </Border>
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,0">
+                                    <TextBlock Text="WINDOWS DRIVER" FontSize="9.5" FontWeight="Bold" Foreground="#888888"/>
+                                    <Border Background="#161616" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Padding="8,6" Margin="0,4,0,0">
+                                        <TextBlock Text="{Binding DriverVersionText}" FontSize="11" FontWeight="Bold" Foreground="#00E676"/>
+                                    </Border>
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <TextBlock Text="ASIO BUFFER SIZE (HKCU\Software\TASCAM\US-16x08\ASIODRIVER\blockFrames)" FontSize="9.5" FontWeight="Bold" Foreground="#888888"/>
+                            <ComboBox ItemsSource="{Binding AvailableBufferSizes}"
+                                      SelectedItem="{Binding AsioBufferSize}"
+                                      Style="{StaticResource AbletonComboBoxStyle}"
+                                      Margin="0,4,0,12"
+                                      Padding="10,6"
+                                      FontSize="12"/>
+
+                            <TextBlock Text="ROUND-TRIP LATENCY ESTIMATE" FontSize="9.5" FontWeight="Bold" Foreground="#888888"/>
+                            <Border Background="#161616" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Padding="8,6" Margin="0,4,0,14">
+                                <TextBlock Text="{Binding LatencyEstimateText}" FontSize="12" FontWeight="Bold" Foreground="#FFB000"/>
+                            </Border>
+
+                            <TextBlock Text="REVERSE-ENGINEERED DRIVER IOCTL SPECIFICATION" FontSize="9.5" FontWeight="Bold" Foreground="#888888" Margin="0,4,0,4"/>
+                            <Border Background="#161616" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Padding="10,8">
+                                <StackPanel>
+                                    <TextBlock Text="&#x2022; KSCATEGORY_RENDER: {65E8773E-8F56-11D0-A3B9-00A0C9223196}" FontFamily="Consolas" FontSize="9.5" Foreground="#B8B8B8" Margin="0,1"/>
+                                    <TextBlock Text="&#x2022; Vendor Control IOCTL: 0x00222000 (bRequest 0x1D Write / 0x1E Read)" FontFamily="Consolas" FontSize="9.5" Foreground="#B8B8B8" Margin="0,1"/>
+                                    <TextBlock Text="&#x2022; Sample Rate IOCTL:    0x0022606C (Returns uint32 Hz)" FontFamily="Consolas" FontSize="9.5" Foreground="#B8B8B8" Margin="0,1"/>
+                                    <TextBlock Text="&#x2022; TLV Ready Handshake:  [0xA1, 0x02, 0x00]" FontFamily="Consolas" FontSize="9.5" Foreground="#B8B8B8" Margin="0,1"/>
+                                    <TextBlock Text="&#x2022; EQ / Comp / Fader:    Tags 0x51..0x55, 0x91..0x97, 0x81..0x85" FontFamily="Consolas" FontSize="9.5" Foreground="#B8B8B8" Margin="0,1"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Right Column: Live 64-Byte USB TLV Frame Inspector -->
+                    <Border Grid.Column="2" Background="#252525" BorderBrush="#3D3D3D" BorderThickness="1" CornerRadius="3" Padding="18">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="LIVE USB / IOCTL 0x00222000 TLV PACKET STREAM" FontSize="13" FontWeight="Black" Foreground="#00D4FF"/>
+                                    <TextBlock Text="Real-time hexadecimal trace of 64-byte TLV frames formatted for the TASCAM US-16x08 onboard DSP." FontSize="10.5" Foreground="#999999"/>
+                                </StackPanel>
+                                <Button Content="CLEAR LOG"
+                                        Command="{Binding ClearPacketLogCommand}"
+                                        Style="{StaticResource AbletonButtonStyle}"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Border Grid.Row="1" Background="#121212" BorderBrush="#333333" BorderThickness="1" CornerRadius="2" Padding="6">
+                                <ListBox ItemsSource="{Binding PacketLog}"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         Foreground="#00E676"
+                                         FontFamily="Consolas"
+                                         FontSize="11"/>
+                            </Border>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- =================================================================== -->
+            <!-- VIEW 4: CONTROL & SYNC - MIDI CLOCK, ROUTE EXPRESSION, CHANNEL      -->
+            <!--         LINKS (AUDIO IN -> SYNTH) AND CONTROL SURFACE / MIDI LEARN  -->
+            <!-- =================================================================== -->
+            <Border Background="#1A1A1A" Padding="14,10">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ActiveTabIndex}" Value="4">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="410"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="1*" MinWidth="330"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="1.15*" MinWidth="360"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- ============================================================ -->
+                    <!-- COLUMN 0: INTERNAL MIDI CLOCK (TOP) + ROUTE EXPRESSION (BOTTOM) -->
+                    <!-- ============================================================ -->
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="10"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- INTERNAL MIDI CLOCK -->
+                        <Border Grid.Row="0" Background="#232323" BorderBrush="#3B3B3B" BorderThickness="1" CornerRadius="3" Padding="14,10">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Title + beat LED + transport state -->
+                                <Grid Grid.Row="0" Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border Background="#00D4FF" Width="4" Height="16" CornerRadius="1" Margin="0,0,7,0"/>
+                                        <TextBlock Text="INTERNAL MIDI CLOCK (24 PPQN)" FontSize="11.5" FontWeight="Black" Foreground="#00D4FF" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Ellipse Width="12" Height="12" Margin="0,0,7,0" Stroke="#555555" StrokeThickness="1">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="#2A2A2A"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ClockBeatLit}" Value="True">
+                                                            <Setter Property="Fill" Value="#00E676"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <TextBlock Text="{Binding ClockTransportLabel}" FontSize="10.5" FontWeight="Black" Foreground="#E0E0E0" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- BPM readout + nudge + tap -->
+                                <Grid Grid.Row="1" Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBox Text="{Binding ClockBpm, StringFormat={}{0:0.0}, UpdateSourceTrigger=LostFocus}"
+                                                 Width="92" FontSize="24" FontWeight="Black" FontFamily="Consolas"
+                                                 Background="#141414" Foreground="#FFB000" BorderBrush="#464646" BorderThickness="1"
+                                                 CaretBrush="#FFB000" TextAlignment="Center" Padding="2,1" VerticalContentAlignment="Center"
+                                                 ToolTip="Type a tempo (20 - 300 BPM) and press Tab"/>
+                                        <TextBlock Text="BPM" FontSize="10" FontWeight="Bold" Foreground="#888888" VerticalAlignment="Bottom" Margin="6,0,0,5"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="-1" Command="{Binding ClockNudgeCommand}" CommandParameter="-1" Style="{StaticResource AbletonButtonStyle}" Padding="8,5" Margin="0,0,4,0"/>
+                                        <Button Content="-0.1" Command="{Binding ClockNudgeCommand}" CommandParameter="-0.1" Style="{StaticResource AbletonButtonStyle}" Padding="8,5" Margin="0,0,4,0"/>
+                                        <Button Content="+0.1" Command="{Binding ClockNudgeCommand}" CommandParameter="0.1" Style="{StaticResource AbletonButtonStyle}" Padding="8,5" Margin="0,0,4,0"/>
+                                        <Button Content="+1" Command="{Binding ClockNudgeCommand}" CommandParameter="1" Style="{StaticResource AbletonButtonStyle}" Padding="8,5" Margin="0,0,8,0"/>
+                                        <Button Content="TAP" Command="{Binding ClockTapCommand}" Style="{StaticResource AbletonButtonStyle}" Padding="16,5" FontWeight="Black" Foreground="#FFB000" BorderBrush="#8A6A1A"
+                                                ToolTip="Tap 2 or more times in tempo"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Slider Grid.Row="2" Minimum="20" Maximum="300" Value="{Binding ClockBpm}" TickFrequency="1" IsSnapToTickEnabled="False" Margin="0,0,0,10"/>
+
+                                <!-- Transport -->
+                                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Button Content="&#x25B6; START" Command="{Binding ClockPlayCommand}" Style="{StaticResource AbletonButtonStyle}" Padding="14,6" Margin="0,0,5,0" FontWeight="Black" Foreground="#00E676" BorderBrush="#2E7D4F"
+                                            ToolTip="Send MIDI Start (0xFA) and run the clock from the top"/>
+                                    <Button Content="&#x25A0; STOP" Command="{Binding ClockStopCommand}" Style="{StaticResource AbletonButtonStyle}" Padding="14,6" Margin="0,0,5,0" FontWeight="Black" Foreground="#FF5252" BorderBrush="#993333"
+                                            ToolTip="Send MIDI Stop (0xFC)"/>
+                                    <Button Content="CONTINUE" Command="{Binding ClockContinueCommand}" Style="{StaticResource AbletonButtonStyle}" Padding="12,6" Margin="0,0,10,0"
+                                            ToolTip="Send MIDI Continue (0xFB) and resume without resetting the position"/>
+                                    <ComboBox ItemsSource="{Binding AvailableClockRates}" SelectedIndex="{Binding ClockRateIndex}" Style="{StaticResource AbletonComboBoxStyle}" Width="150"
+                                              ToolTip="Clock division: pulse rate sent to the synths relative to the BPM shown"/>
+                                </StackPanel>
+
+                                <!-- Options -->
+                                <Grid Grid.Row="4" Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ToggleButton Grid.Column="0" Content="KEEP CLOCK RUNNING WHEN STOPPED" IsChecked="{Binding ClockWhileStopped}" Style="{StaticResource AbletonCyanToggleStyle}" Padding="9,4"
+                                                  ToolTip="Keep sending 0xF8 pulses while stopped so arpeggiators and LFOs stay in tempo"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding ClockOutputSummary}" FontSize="9.5" FontWeight="Bold" Foreground="#9A9A9A" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                </Grid>
+
+                                <!-- Clock destinations -->
+                                <Border Grid.Row="5" Background="#1A1A1A" BorderBrush="#323232" BorderThickness="1" CornerRadius="2" Padding="8,6">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Text="SEND CLOCK + START / STOP TO:" FontSize="9" FontWeight="Bold" Foreground="#9A9A9A" Margin="0,0,0,5"/>
+                                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                            <ItemsControl ItemsSource="{Binding MidiOutputPorts}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel Orientation="Horizontal"/>
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <ToggleButton Content="{Binding ShortDisplayName}" IsChecked="{Binding SendClock}"
+                                                                      Style="{StaticResource AbletonCyanToggleStyle}" Padding="8,4" Margin="0,0,5,5"/>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Border>
+
+                        <!-- ROUTE EXPRESSION: VELOCITY CURVE + CC REMAP FOR THE SELECTED MIDI PATCH -->
+                        <Border Grid.Row="2" Background="#232323" BorderBrush="#3B3B3B" BorderThickness="1" CornerRadius="3" Padding="14,10">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Border Background="#FFB000" Width="4" Height="16" CornerRadius="1" Margin="0,0,7,0"/>
+                                    <TextBlock Text="PATCH VELOCITY CURVE &amp; CC REMAP" FontSize="11.5" FontWeight="Black" Foreground="#FFB000" VerticalAlignment="Center"/>
+                                </StackPanel>
+
+                                <TextBlock Text="MIDI PATCH (same selection as the 3 // MIDI tab)" FontSize="9" FontWeight="Bold" Foreground="#9A9A9A" Margin="0,0,0,4"/>
+                                <ComboBox ItemsSource="{Binding MidiRoutes}"
+                                          SelectedItem="{Binding SelectedMidiRoute}"
+                                          DisplayMemberPath="RouteTitle"
+                                          Style="{StaticResource AbletonComboBoxStyle}"
+                                          Margin="0,0,0,10"/>
+
+                                <StackPanel IsEnabled="{Binding HasSelectedMidiRoute}">
+                                    <TextBlock Text="NOTE VELOCITY CURVE" FontSize="9" FontWeight="Bold" Foreground="#9A9A9A" Margin="0,0,0,4"/>
+                                    <ComboBox ItemsSource="{Binding AvailableVelocityCurves}"
+                                              SelectedIndex="{Binding SelectedMidiRoute.VelocityCurve}"
+                                              Style="{StaticResource AbletonComboBoxStyle}"
+                                              Margin="0,0,0,6"/>
+                                    <Grid Margin="0,0,0,10" IsEnabled="{Binding SelectedMidiRoute.IsFixedVelocity, FallbackValue=False}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="34"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="FIXED VELOCITY" FontSize="9" FontWeight="Bold" Foreground="#9A9A9A" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <Slider Grid.Column="1" Minimum="1" Maximum="127" Value="{Binding SelectedMidiRoute.FixedVelocity}" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding SelectedMidiRoute.FixedVelocity, FallbackValue=100}" FontSize="10.5" FontWeight="Black" Foreground="#FFB000" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                    </Grid>
+
+                                    <TextBlock Text="CONTROLLER (CC) REMAP" FontSize="9" FontWeight="Bold" Foreground="#9A9A9A" Margin="0,0,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox Grid.Column="0" ItemsSource="{Binding AvailableCcSources}"
+                                                  SelectedIndex="{Binding SelectedMidiRoute.CcRemapFromIndex}"
+                                                  Style="{StaticResource AbletonComboBoxStyle}" MaxDropDownHeight="320"
+                                                  ToolTip="Incoming controller number to rewrite (OFF = no remap)"/>
+                                        <TextBlock Grid.Column="1" Text="&#x2192;" FontSize="14" FontWeight="Black" Foreground="#00D4FF" VerticalAlignment="Center" Margin="8,0"/>
+                                        <ComboBox Grid.Column="2" ItemsSource="{Binding AvailableCcTargets}"
+                                                  SelectedIndex="{Binding SelectedMidiRoute.CcRemapTo}"
+                                                  Style="{StaticResource AbletonComboBoxStyle}" MaxDropDownHeight="320"
+                                                  ToolTip="Controller number sent to the synth instead"/>
+                                    </Grid>
+                                    <TextBlock Text="{Binding SelectedMidiRoute.FilterSummary}" FontSize="9.5" FontWeight="Black" Foreground="#00D4FF" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- ============================================================ -->
+                    <!-- COLUMN 2: AUDIO INPUT CHANNEL -> MIDI SYNTH PORT / CHANNEL LINKS -->
+                    <!-- ============================================================ -->
+                    <Border Grid.Column="2" Background="#232323" BorderBrush="#3B3B3B" BorderThickness="1" CornerRadius="3" Padding="14,10">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Border Background="#00E676" Width="4" Height="16" CornerRadius="1" Margin="0,0,7,0"/>
+                                    <TextBlock Text="AUDIO CHANNEL &#x2192; MIDI SYNTH LINKS" FontSize="11.5" FontWeight="Black" Foreground="#00E676" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="CLEAR ALL" Command="{Binding ClearChannelLinksCommand}" Style="{StaticResource AbletonButtonStyle}" Padding="8,3"/>
+                            </Grid>
+
+                            <!-- Follow options -->
+                            <Border Grid.Row="1" Background="#1A1A1A" BorderBrush="#323232" BorderThickness="1" CornerRadius="2" Padding="8,7" Margin="0,0,0,8">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <Grid Grid.Row="0" Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="KEYBOARD INPUT:" FontSize="9" FontWeight="Bold" Foreground="#9A9A9A" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox Grid.Column="1" ItemsSource="{Binding ControllerPortChoices}" SelectedItem="{Binding FocusControllerPort}" Style="{StaticResource AbletonComboBoxStyle}"/>
+                                    </Grid>
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal">
+                                        <ToggleButton Content="KEYBOARD FOLLOWS SELECTED TRACK" IsChecked="{Binding KeyboardFollowsTrack}" Style="{StaticResource AbletonAmberToggleStyle}" Padding="9,4" Margin="0,0,6,0"
+                                                      ToolTip="Selecting a mixer strip routes the keyboard to the synth linked to that strip and mutes its patches to the other linked synths"/>
+                                        <Button Content="FOCUS SELECTED NOW" Command="{Binding FocusSelectedTrackCommand}" Style="{StaticResource AbletonButtonStyle}" Padding="9,4"
+                                                ToolTip="Apply the keyboard focus for the currently selected track once"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- Column captions -->
+                            <Grid Grid.Row="2" Margin="0,0,18,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="44"/>
+                                    <ColumnDefinition Width="92"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="92"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="AUDIO" FontSize="8.5" FontWeight="Bold" Foreground="#777777"/>
+                                <TextBlock Grid.Column="1" Text="TRACK NAME" FontSize="8.5" FontWeight="Bold" Foreground="#777777"/>
+                                <TextBlock Grid.Column="2" Text="MIDI SYNTH OUTPUT PORT" FontSize="8.5" FontWeight="Bold" Foreground="#777777"/>
+                                <TextBlock Grid.Column="3" Text="MIDI CHANNEL" FontSize="8.5" FontWeight="Bold" Foreground="#777777" Margin="6,0,0,0"/>
+                            </Grid>
+
+                            <!-- 16 link rows -->
+                            <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{Binding ChannelLinks}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="44"/>
+                                                    <ColumnDefinition Width="92"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="92"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding ChannelLabel}" FontSize="10.5" FontWeight="Black" Foreground="#FFB000" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Track.CustomName}" FontSize="10" Foreground="#C8C8C8" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,6,0"/>
+                                                <ComboBox Grid.Column="2"
+                                                          ItemsSource="{Binding DataContext.LinkPortChoices, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                                          SelectedItem="{Binding PortChoice}"
+                                                          Style="{StaticResource AbletonComboBoxStyle}"/>
+                                                <ComboBox Grid.Column="3" Margin="6,0,0,0"
+                                                          ItemsSource="{Binding DataContext.AvailableLinkMidiChannels, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                                          SelectedIndex="{Binding MidiChannel}"
+                                                          IsEnabled="{Binding IsLinked}"
+                                                          Style="{StaticResource AbletonComboBoxStyle}"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <!-- ============================================================ -->
+                    <!-- COLUMN 4: CONTROL SURFACE MAPPING + MIDI LEARN               -->
+                    <!-- ============================================================ -->
+                    <Border Grid.Column="4" Background="#232323" BorderBrush="#3B3B3B" BorderThickness="1" CornerRadius="3" Padding="14,10">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Border Background="#FFB000" Width="4" Height="16" CornerRadius="1" Margin="0,0,7,0"/>
+                                    <TextBlock Text="CONTROL SURFACE &#x2192; MIXER" FontSize="11.5" FontWeight="Black" Foreground="#FFB000" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBlock Text="{Binding ControlMappingSummary}" FontSize="9.5" FontWeight="Bold" Foreground="#9A9A9A" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <ToggleButton Content="ACTIVE" IsChecked="{Binding ControlSurfaceEnabled}" Style="{StaticResource AbletonAmberToggleStyle}" Padding="9,3" Margin="0,0,5,0"
+                                                  ToolTip="Off = mapped controls are ignored by the mixer and pass through to the synth patches"/>
+                                    <Button Content="CLEAR ALL" Command="{Binding ClearControlMappingsCommand}" Style="{StaticResource AbletonButtonStyle}" Padding="8,3"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- New mapping: target + track + learn -->
+                            <Border Grid.Row="1" Background="#1A1A1A" BorderBrush="#323232" BorderThickness="1" CornerRadius="2" Padding="8,7" Margin="0,0,0,8">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <Grid Grid.Row="0" Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="1.4*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="1*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="ASSIGN:" FontSize="9" FontWeight="Bold" Foreground="#9A9A9A" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableControlTargets}" SelectedIndex="{Binding NewMappingTargetIndex}" Style="{StaticResource AbletonComboBoxStyle}" MaxDropDownHeight="420"/>
+                                        <TextBlock Grid.Column="2" Text="ON:" FontSize="9" FontWeight="Bold" Foreground="#9A9A9A" VerticalAlignment="Center" Margin="8,0"/>
+                                        <ComboBox Grid.Column="3" ItemsSource="{Binding AvailableMappingTracks}" SelectedIndex="{Binding NewMappingTrackIndex}" IsEnabled="{Binding IsNewMappingTrackScoped}" Style="{StaticResource AbletonComboBoxStyle}" MaxDropDownHeight="420"/>
+                                    </Grid>
+                                    <Grid Grid.Row="1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ToggleButton Grid.Column="0" Content="{Binding LearnButtonText}" IsChecked="{Binding IsLearning}"
+                                                      Style="{StaticResource AbletonAmberToggleStyle}" Padding="10,6" FontWeight="Black"
+                                                      ToolTip="Click, then move the fader / knob or press the button on your controller"/>
+                                        <ToggleButton Grid.Column="1" Content="AUTO-STEP TO NEXT CHANNEL" IsChecked="{Binding LearnAutoAdvance}" Style="{StaticResource AbletonCyanToggleStyle}" Padding="9,6" Margin="6,0,0,0"
+                                                      ToolTip="After each learned control, move on to the next input channel and keep listening (quick 8- or 16-fader setup)"/>
+                                    </Grid>
+                                </Grid>
+                            </Border>
+
+                            <!-- Learned mappings -->
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{Binding ControlMappings}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#1C1C1C" BorderBrush="#303030" BorderThickness="1" CornerRadius="2" Padding="8,5" Margin="0,0,0,4">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0">
+                                                        <TextBlock Text="{Binding TargetDisplay}" FontSize="10.5" FontWeight="Black" Foreground="#EBEBEB" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding SourceDisplay}" FontSize="9" Foreground="#8C8C8C" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                                                    </StackPanel>
+                                                    <TextBlock Grid.Column="1" Text="{Binding LastValueDisplay}" FontSize="10" FontWeight="Bold" FontFamily="Consolas" Foreground="#00E676" VerticalAlignment="Center" Margin="8,0"/>
+                                                    <Button Grid.Column="2" Content="REMOVE"
+                                                            Command="{Binding DataContext.RemoveControlMappingCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                                            CommandParameter="{Binding}"
+                                                            Style="{StaticResource AbletonButtonStyle}" Padding="7,3" VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ======================================================================= -->
+        <!-- ROW 3: BOTTOM ABLETON INFO / STATUS BAR                                 -->
+        <!-- ======================================================================= -->
+        <Border Grid.Row="3" Background="#141414" BorderBrush="#2C2C2C" BorderThickness="0,1,0,0" Padding="12,0">
+            <Grid>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="INFO //" FontSize="10" FontWeight="Black" Foreground="#FFB000" Margin="0,0,6,0"/>
+                    <TextBlock Text="{Binding StatusMessage}" FontSize="10.5" Foreground="#CCCCCC"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="SELECTED TRACK: " FontSize="9.5" FontWeight="Bold" Foreground="#777777"/>
+                    <TextBlock Text="{Binding SelectedTrack.HeaderTitle}" FontSize="9.5" FontWeight="Bold" Foreground="#FFB000" Margin="0,0,12,0"/>
+                    <TextBlock Text="DRIVER: US-16x08 IOCTL 0x00222000" FontSize="9.5" FontFamily="Consolas" Foreground="#777777"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

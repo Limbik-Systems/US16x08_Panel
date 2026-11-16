@@ -1,0 +1,93 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using US16x08_AbletonPanel.ViewModels;
+
+namespace US16x08_AbletonPanel;
+
+public partial class App : Application
+{
+    protected override async void OnStartup(StartupEventArgs e)
+    {
+        DispatcherUnhandledException += (_, exArgs) =>
+        {
+            exArgs.Handled = true;
+        };
+        Exit += (_, _) =>
+        {
+            if (MainWindow?.DataContext is MainViewModel vm)
+                vm.Dispose();
+        };
+
+        base.OnStartup(e);
+
+        try
+        {
+            var win = new MainWindow();
+            MainWindow = win;
+            win.Show();
+            win.Activate();
+
+            if (e.Args.Contains("--self-test"))
+            {
+                string outDir = e.Args.Length > 1 ? e.Args[1] : AppDomain.CurrentDomain.BaseDirectory;
+                Directory.CreateDirectory(outDir);
+
+                await Task.Delay(550);
+                CaptureWindowToPng(win, Path.Combine(outDir, "ableton_mixer_tab0.png"));
+
+                if (win.DataContext is MainViewModel vm)
+                {
+                    vm.ActiveTabIndex = 1;
+                    await Task.Delay(200);
+                    CaptureWindowToPng(win, Path.Combine(outDir, "ableton_routing_tab1.png"));
+
+                    vm.ActiveTabIndex = 2;
+                    await Task.Delay(250);
+                    CaptureWindowToPng(win, Path.Combine(outDir, "ableton_midi_tab2.png"));
+
+                    vm.ActiveTabIndex = 3;
+                    await Task.Delay(200);
+                    CaptureWindowToPng(win, Path.Combine(outDir, "ableton_inspector_tab3.png"));
+
+                    vm.ActiveTabIndex = 0;
+                    vm.Dispose();
+                }
+
+                Console.WriteLine("SELF_TEST_OK");
+                Shutdown(0);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (e.Args.Contains("--self-test"))
+            {
+                Console.WriteLine("SELF_TEST_ERR: " + ex);
+                Shutdown(1);
+            }
+            else
+            {
+                MessageBox.Show("Startup error:\n" + ex, "TASCAM US-16x08 Console Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
+    private static void CaptureWindowToPng(Window win, string path)
+    {
+        win.UpdateLayout();
+        int w = Math.Max(800, (int)win.ActualWidth);
+        int h = Math.Max(600, (int)win.ActualHeight);
+
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(win);
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(rtb));
+        using var fs = File.Create(path);
+        encoder.Save(fs);
+    }
+}

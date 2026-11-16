@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>US16x08_AbletonPanel</AssemblyName>
+    <RootNamespace>US16x08_AbletonPanel</RootNamespace>
+    <ApplicationTitle>TASCAM US-16x08 // Ableton Live DSP Console</ApplicationTitle>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,1215 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using US16x08_AbletonPanel.Models;
+
+namespace US16x08_AbletonPanel.Hardware;
+
+public sealed class MidiRoutingService : IDisposable
+{
+    private const uint CALLBACK_FUNCTION = 0x00030000;
+    private const uint MIM_DATA = 0x3C3;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MIDIINCAPS
+    {
+        public ushort wMid;
+        public ushort wPid;
+        public uint vDriverVersion;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string szPname;
+        public uint dwSupport;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MIDIOUTCAPS
+    {
+        public ushort wMid;
+        public ushort wPid;
+        public uint vDriverVersion;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string szPname;
+        public ushort wTechnology;
+        public ushort wVoices;
+        public ushort wNotes;
+        public ushort wChannelMask;
+        public uint dwSupport;
+    }
+
+    private delegate void MidiInProc(IntPtr hMidiIn, uint wMsg, IntPtr dwInstance, IntPtr dwParam1, IntPtr dwParam2);
+
+    [DllImport("winmm.dll", CharSet = CharSet.Auto)]
+    private static extern uint midiInGetNumDevs();
+
+    [DllImport("winmm.dll", CharSet = CharSet.Auto)]
+    private static extern uint midiInGetDevCaps(UIntPtr uDeviceID, out MIDIINCAPS pmic, uint cbmic);
+
+    [DllImport("winmm.dll")]
+    private static extern uint midiInOpen(out IntPtr lphMidiIn, uint uDeviceID, MidiInProc dwCallback, IntPtr dwInstance, uint dwFlags);
+
+    [DllImport("winmm.dll")]
+    private static extern uint midiInStart(IntPtr hMidiIn);
+
+    [DllImport("winmm.dll")]
+    private static extern uint midiInStop(IntPtr hMidiIn);
+
+    [DllImport("winmm.dll")]
+    private static extern uint midiInReset(IntPtr hMidiIn);
+
+    [DllImport("winmm.dll")]
+    private static extern uint midiInClose(IntPtr hMidiIn);
+
+    [DllImport("winmm.dll", CharSet = CharSet.Auto)]
+    private static extern uint midiOutGetNumDevs();
+
+    [DllImport("winmm.dll", CharSet = CharSet.Auto)]
+    private static extern uint midiOutGetDevCaps(UIntPtr uDeviceID, out MIDIOUTCAPS pmoc, uint cbmoc);
+
+    [DllImport("winmm.dll")]
+    private static extern uint midiOutOpen(out IntPtr lphMidiOut, uint uDeviceID, IntPtr dwCallback, IntPtr dwInstance, uint dwFlags);
+
+    [DllImport("winmm.dll")]
+    private static extern uint midiOutShortMsg(IntPtr hMidiOut, uint dwMsg);
+
+    [DllImport("winmm.dll")]
+    private static extern uint midiOutReset(IntPtr hMidiOut);
+
+    [DllImport("winmm.dll")]
+    private static extern uint midiOutClose(IntPtr hMidiOut);
+
+    private sealed class OpenInputHandle
+    {
+        public required MidiPortModel Port { get; init; }
+        public IntPtr Handle;
+        public required MidiInProc CallbackDelegate { get; init; } // Rooted so GC never collects native callback
+        public volatile bool IsClosing;
+    }
+
+    private sealed class OpenOutputHandle
+    {
+        public required MidiPortModel Port { get; init; }
+        public IntPtr Handle;
+        public readonly object WriteLock = new();
+    }
+
+    private readonly record struct QueuedShortMidi(OpenInputHandle Source, uint RawMessage);
+
+    // Strictly serializes all winmm.dll open/close lifecycle calls so wdmaud.drv / MidiSrv never race
+    private readonly object _portLifecycleLock = new();
+    private readonly ConcurrentDictionary<string, MidiPortModel> _knownInputs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, MidiPortModel> _knownOutputs = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly ConcurrentDictionary<string, OpenInputHandle> _openInputs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, OpenOutputHandle> _openOutputs = new(StringComparer.OrdinalIgnoreCase);
+
+    // Immutable array of open outputs for the clock thread (ConcurrentDictionary.Values would lock and allocate per pulse)
+    private volatile OpenOutputHandle[] _openOutputsArray = Array.Empty<OpenOutputHandle>();
+
+    // ---- Control surface (MIDI controller -> mixer) ----
+    public readonly record struct ControlBinding(string PortName, int ChannelZeroBased, bool IsNote, int Number, int MappingId);
+    public readonly record struct ControlSurfaceEvent(int MappingId, int Value, bool IsNote);
+    public readonly record struct LearnCapture(string PortName, int ChannelOneBased, bool IsNote, int Number);
+
+    private volatile ControlBinding[] _controlBindings = Array.Empty<ControlBinding>();
+    private int _learnArmed; // 1 = next CC / Note On from any input is captured instead of routed
+
+    /// <summary>Mapped controller messages, drained and applied to the mixer on the UI thread.</summary>
+    public ConcurrentQueue<ControlSurfaceEvent> PendingControlEvents { get; } = new();
+
+    /// <summary>MIDI Learn captures, drained on the UI thread.</summary>
+    public ConcurrentQueue<LearnCapture> PendingLearnCaptures { get; } = new();
+
+    // Lock-free queue between winmm.dll callback and dedicated router thread
+    private readonly ConcurrentQueue<QueuedShortMidi> _incomingQueue = new();
+    private readonly AutoResetEvent _routerWakeEvent = new(false);
+    private readonly Thread _routerThread;
+
+    // Lock-free monitor event queue drained by UI timer
+    public ConcurrentQueue<MidiMonitorEvent> PendingMonitorEvents { get; } = new();
+
+    // Immutable array snapshot for lock-free sub-millisecond routing
+    private volatile MidiRouteModel[] _activeRoutesSnapshot = Array.Empty<MidiRouteModel>();
+
+    // Clock BPM estimation (24 PPQN)
+    private long _lastClockTickTimestamp;
+    private double _smoothedClockBpm;
+    private long _lastClockReceivedMs;
+
+    private readonly string _routesPersistencePath;
+    private readonly string _portChannelsPersistencePath;
+    private readonly ConcurrentDictionary<string, int> _preferredPortChannels = new(StringComparer.OrdinalIgnoreCase);
+    private volatile bool _disposed;
+
+    public bool FilterClockFromMonitor { get; set; } = true;
+    public bool IsMonitorPaused { get; set; }
+
+    public MidiRoutingService()
+    {
+        string appDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TASCAM_US16x08_AbletonPanel");
+        Directory.CreateDirectory(appDir);
+        _routesPersistencePath = Path.Combine(appDir, "midi_routes_v2.json");
+        _portChannelsPersistencePath = Path.Combine(appDir, "midi_port_channels_v2.json");
+        LoadPreferredPortChannelsFromDisk();
+
+        _routerThread = new Thread(MidiRouterWorkerLoop)
+        {
+            IsBackground = true,
+            Priority = ThreadPriority.Highest,
+            Name = "TascamMidiRouterWorker"
+        };
+        _routerThread.Start();
+    }
+
+    public double CurrentClockBpm
+    {
+        get
+        {
+            if (Environment.TickCount64 - Interlocked.Read(ref _lastClockReceivedMs) > 2500)
+                return 0.0;
+            return _smoothedClockBpm;
+        }
+    }
+
+    /// <summary>
+    /// Enumerates MIDI In/Out device capabilities immediately (< 2 ms) so UI launch never blocks,
+    /// then opens all MIDI ports sequentially on a single background worker thread.
+    /// </summary>
+    public (List<MidiPortModel> Inputs, List<MidiPortModel> Outputs) ScanAndOpenPorts()
+    {
+        var inputs = new List<MidiPortModel>();
+        uint inCount = midiInGetNumDevs();
+        uint inCapsSize = (uint)Marshal.SizeOf<MIDIINCAPS>();
+
+        _knownInputs.Clear();
+        for (uint i = 0; i < inCount; i++)
+        {
+            if (midiInGetDevCaps((UIntPtr)i, out MIDIINCAPS caps, inCapsSize) == 0)
+            {
+                string name = CleanPortName(caps.szPname, $"MIDI IN {i + 1}");
+                var model = new MidiPortModel
+                {
+                    DeviceIndex = (int)i,
+                    Name = name,
+                    IsInput = true,
+                    IsEnabled = true
+                };
+                _knownInputs[name] = model;
+                inputs.Add(model);
+            }
+        }
+
+        var outputs = new List<MidiPortModel>();
+        uint outCount = midiOutGetNumDevs();
+        uint outCapsSize = (uint)Marshal.SizeOf<MIDIOUTCAPS>();
+
+        _knownOutputs.Clear();
+        for (uint i = 0; i < outCount; i++)
+        {
+            if (midiOutGetDevCaps((UIntPtr)i, out MIDIOUTCAPS caps, outCapsSize) == 0)
+            {
+                string name = CleanPortName(caps.szPname, $"MIDI OUT {i + 1}");
+                if (name.Contains("Microsoft GS Wavetable", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var model = new MidiPortModel
+                {
+                    DeviceIndex = (int)i,
+                    Name = name,
+                    IsInput = false,
+                    IsEnabled = true,
+                    PreferredChannel = _preferredPortChannels.TryGetValue(name, out int prefCh) ? Math.Clamp(prefCh, 0, 16) : 0
+                };
+                _knownOutputs[name] = model;
+                outputs.Add(model);
+            }
+        }
+
+        inputs = inputs
+            .OrderBy(p => GetSortPriority(p))
+            .ThenBy(p => p.DeviceIndex)
+            .ToList();
+
+        outputs = outputs
+            .OrderBy(p => GetSortPriority(p))
+            .ThenBy(p => p.DeviceIndex)
+            .ToList();
+
+        var inputsToOpen = inputs.ToArray();
+        var outputsToOpen = outputs.ToArray();
+
+        // Open all ports sequentially on a single background worker so wdmaud.drv / MidiSrv never race
+        _ = Task.Run(() => OpenAllPortsSequentially(inputsToOpen, outputsToOpen));
+
+        return (inputs, outputs);
+    }
+
+    private void OpenAllPortsSequentially(MidiPortModel[] inputs, MidiPortModel[] outputs)
+    {
+        lock (_portLifecycleLock)
+        {
+            if (_disposed) return;
+
+            CloseAllPortsNoLock();
+
+            // 1. Open all MIDI OUT ports sequentially
+            foreach (var outPort in outputs)
+            {
+                if (_disposed) return;
+                TryOpenSingleOutputSequential(outPort);
+            }
+
+            // 2. Open all MIDI IN ports sequentially
+            foreach (var inPort in inputs)
+            {
+                if (_disposed) return;
+                TryOpenSingleInputSequential(inPort);
+            }
+
+            _openOutputsArray = _openOutputs.Values.ToArray();
+
+            // 3. Start all opened MIDI IN ports
+            foreach (var holder in _openInputs.Values)
+            {
+                if (_disposed) return;
+                if (holder.Handle != IntPtr.Zero)
+                {
+                    midiInStart(holder.Handle);
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Control surface mapping + MIDI Learn
+    // ------------------------------------------------------------------------------------------------
+
+    /// <summary>Replaces the lock-free binding table the router thread matches incoming CC / Note messages against.</summary>
+    public void SetControlBindings(IEnumerable<ControlBinding> bindings)
+    {
+        _controlBindings = bindings.ToArray();
+    }
+
+    public bool IsLearnArmed => Volatile.Read(ref _learnArmed) == 1;
+
+    /// <summary>Arms MIDI Learn: the next Control Change or Note On from any input is captured (and not routed).</summary>
+    public void ArmLearn()
+    {
+        while (PendingLearnCaptures.TryDequeue(out _)) { }
+        Interlocked.Exchange(ref _learnArmed, 1);
+    }
+
+    public void DisarmLearn()
+    {
+        Interlocked.Exchange(ref _learnArmed, 0);
+    }
+
+    /// <summary>
+    /// Runs on the router thread. Returns true when the message was consumed by MIDI Learn or by a controller mapping,
+    /// in which case it is not forwarded to any synth.
+    /// </summary>
+    private bool TryHandleControlSurface(MidiPortModel srcPort, byte status, byte data1, byte data2)
+    {
+        int msgType = status & 0xF0;
+        bool isCc = msgType == 0xB0;
+        bool isNote = msgType == 0x90 || msgType == 0x80;
+        if (!isCc && !isNote)
+            return false;
+
+        int channelZeroBased = status & 0x0F;
+        bool isNoteOn = msgType == 0x90 && data2 > 0;
+
+        if ((isCc || isNoteOn) && Interlocked.CompareExchange(ref _learnArmed, 0, 1) == 1)
+        {
+            PendingLearnCaptures.Enqueue(new LearnCapture(srcPort.Name, channelZeroBased + 1, isNote, data1));
+            return true;
+        }
+
+        var bindings = _controlBindings;
+        bool consumed = false;
+        for (int i = 0; i < bindings.Length; i++)
+        {
+            ref readonly ControlBinding b = ref bindings[i];
+            if (b.IsNote != isNote || b.Number != data1 || b.ChannelZeroBased != channelZeroBased)
+                continue;
+            if (b.PortName.Length != 0 && !string.Equals(b.PortName, srcPort.Name, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Notes report velocity on press and 0 on release; CCs report their 0..127 value
+            int value = isNote ? (isNoteOn ? data2 : 0) : data2;
+            PendingControlEvents.Enqueue(new ControlSurfaceEvent(b.MappingId, value, isNote));
+            consumed = true;
+        }
+
+        // Never let the UI-thread queue grow without bound if the window is busy
+        while (PendingControlEvents.Count > 512)
+            PendingControlEvents.TryDequeue(out _);
+
+        return consumed;
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Internal MIDI clock output
+    // ------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Sends a single-byte System Realtime message (0xF8 Clock, 0xFA Start, 0xFB Continue, 0xFC Stop) to every open
+    /// output whose <see cref="MidiPortModel.SendClock"/> flag is set. Called from the clock thread and the UI thread.
+    /// </summary>
+    public void SendRealtimeToClockOutputs(byte status, bool flashActivity)
+    {
+        if (_disposed) return;
+
+        var outputs = _openOutputsArray;
+        int sentTo = 0;
+        for (int i = 0; i < outputs.Length; i++)
+        {
+            var holder = outputs[i];
+            if (!holder.Port.SendClock || !holder.Port.IsEnabled || holder.Handle == IntPtr.Zero)
+                continue;
+
+            lock (holder.WriteLock)
+            {
+                if (holder.Handle != IntPtr.Zero)
+                    midiOutShortMsg(holder.Handle, status);
+            }
+            sentTo++;
+
+            if (status != 0xF8)
+                holder.Port.RecordActivityFromBackground(FormatCompactSummary(status, 0, 0));
+            else if (flashActivity)
+                holder.Port.RecordActivityFromBackground(null);
+        }
+
+        if (status != 0xF8 && !IsMonitorPaused)
+        {
+            var evt = BuildMonitorEvent("INTERNAL CLOCK", $"{sentTo} CLOCK OUTPUT(S)", status, 0, 0, "#00D4FF");
+            EnqueueMonitorEvent(evt);
+        }
+    }
+
+    private void TryOpenSingleOutputSequential(MidiPortModel port)
+    {
+        try
+        {
+            uint res = midiOutOpen(out IntPtr handle, (uint)port.DeviceIndex, IntPtr.Zero, IntPtr.Zero, 0);
+            if (res == 0 && handle != IntPtr.Zero)
+            {
+                var holder = new OpenOutputHandle
+                {
+                    Port = port,
+                    Handle = handle
+                };
+                _openOutputs[port.Name] = holder;
+                port.SetOpenStateFromBackground(true);
+            }
+            else
+            {
+                port.SetOpenStateFromBackground(false);
+            }
+        }
+        catch
+        {
+            port.SetOpenStateFromBackground(false);
+        }
+    }
+
+    private void TryOpenSingleInputSequential(MidiPortModel port)
+    {
+        try
+        {
+            OpenInputHandle? holder = null;
+            MidiInProc callback = (hMidiIn, wMsg, dwInstance, dwParam1, dwParam2) =>
+            {
+                if (wMsg == MIM_DATA && holder != null && !holder.IsClosing && !_disposed)
+                {
+                    uint raw = unchecked((uint)dwParam1.ToInt64());
+                    if ((raw & 0xFF) == 0xFE) return; // Ignore Active Sensing
+                    _incomingQueue.Enqueue(new QueuedShortMidi(holder, raw));
+                    _routerWakeEvent.Set();
+                }
+            };
+
+            uint res = midiInOpen(out IntPtr handle, (uint)port.DeviceIndex, callback, IntPtr.Zero, CALLBACK_FUNCTION);
+            if (res == 0 && handle != IntPtr.Zero)
+            {
+                holder = new OpenInputHandle
+                {
+                    Port = port,
+                    Handle = handle,
+                    CallbackDelegate = callback
+                };
+                _openInputs[port.Name] = holder;
+                port.SetOpenStateFromBackground(true);
+            }
+            else
+            {
+                port.SetOpenStateFromBackground(false);
+            }
+        }
+        catch
+        {
+            port.SetOpenStateFromBackground(false);
+        }
+    }
+
+    private static int GetSortPriority(MidiPortModel p) => p.Category switch
+    {
+        MidiPortCategory.TascamDin => 0,
+        MidiPortCategory.UsbController => 1,
+        MidiPortCategory.UsbSynth => 2,
+        _ => 3
+    };
+
+    private static string CleanPortName(string raw, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return fallback;
+        string s = raw.Trim();
+        if (s.StartsWith("MIDIOUT2 (", StringComparison.OrdinalIgnoreCase) && !s.EndsWith(')'))
+            s += ")";
+        return s;
+    }
+
+    private void MidiRouterWorkerLoop()
+    {
+        while (!_disposed)
+        {
+            _routerWakeEvent.WaitOne(15);
+            if (_disposed) break;
+
+            while (_incomingQueue.TryDequeue(out var item))
+            {
+                if (_disposed) break;
+                ProcessIncomingShortMidi(item.Source, item.RawMessage);
+            }
+        }
+    }
+
+    private void ProcessIncomingShortMidi(OpenInputHandle srcHolder, uint rawMsg)
+    {
+        if (srcHolder.IsClosing || !srcHolder.Port.IsEnabled)
+            return;
+
+        byte status = (byte)(rawMsg & 0xFF);
+        byte data1 = (byte)((rawMsg >> 8) & 0xFF);
+        byte data2 = (byte)((rawMsg >> 16) & 0xFF);
+
+        if (status == 0xF8)
+        {
+            UpdateClockBpm();
+        }
+
+        // MIDI Learn and controller-to-mixer mappings take the message before any synth route sees it
+        if (status < 0xF0 && TryHandleControlSurface(srcHolder.Port, status, data1, data2))
+        {
+            srcHolder.Port.RecordActivityFromBackground($"Mixer control ({FormatCompactSummary(status, data1, data2)})");
+            if (!IsMonitorPaused)
+            {
+                EnqueueMonitorEvent(BuildMonitorEvent(
+                    srcHolder.Port.ShortDisplayName,
+                    "MIXER CONTROL SURFACE",
+                    status,
+                    data1,
+                    data2,
+                    "#FFB000"));
+            }
+            return;
+        }
+
+        var routes = _activeRoutesSnapshot;
+        bool routedAny = false;
+
+        for (int i = 0; i < routes.Length; i++)
+        {
+            var route = routes[i];
+            if (!route.IsEnabled || !string.Equals(route.SourcePortName, srcHolder.Port.Name, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (TryTransformShortMessage(route, status, data1, data2, out uint outMsg, out byte outStatus, out byte outD1, out byte outD2))
+            {
+                if (_openOutputs.TryGetValue(route.DestPortName, out var outHolder) && outHolder.Port.IsEnabled && outHolder.Handle != IntPtr.Zero)
+                {
+                    lock (outHolder.WriteLock)
+                    {
+                        if (outHolder.Handle != IntPtr.Zero)
+                            midiOutShortMsg(outHolder.Handle, outMsg);
+                    }
+
+                    routedAny = true;
+                    string? outSummary = outStatus != 0xF8 ? FormatCompactSummary(outStatus, outD1, outD2) : null;
+                    outHolder.Port.RecordActivityFromBackground(outSummary);
+                    route.RecordRouteActivityFromBackground();
+
+                    if (!IsMonitorPaused && !(status == 0xF8 && FilterClockFromMonitor))
+                    {
+                        var evt = BuildMonitorEvent(
+                            srcHolder.Port.ShortDisplayName,
+                            outHolder.Port.ShortDisplayName,
+                            outStatus,
+                            outD1,
+                            outD2,
+                            "#00E676");
+                        EnqueueMonitorEvent(evt);
+                    }
+                }
+            }
+        }
+
+        string? inSummary = status != 0xF8
+            ? (routedAny ? FormatCompactSummary(status, data1, data2) : $"Unrouted ({FormatCompactSummary(status, data1, data2)})")
+            : null;
+        srcHolder.Port.RecordActivityFromBackground(inSummary);
+
+        if (!routedAny && !IsMonitorPaused && !(status == 0xF8 && FilterClockFromMonitor))
+        {
+            var baseEvt = BuildMonitorEvent(
+                srcHolder.Port.ShortDisplayName,
+                "NO OUTPUT (UNROUTED)",
+                status,
+                data1,
+                data2,
+                "#757575");
+            EnqueueMonitorEvent(new MidiMonitorEvent
+            {
+                Timestamp = baseEvt.Timestamp,
+                Direction = "DROP",
+                SourcePort = baseEvt.SourcePort,
+                DestPort = "NO OUTPUT (UNROUTED)",
+                RawHex = baseEvt.RawHex,
+                ChannelText = "NONE",
+                MessageType = baseEvt.MessageType,
+                DecodedDetail = $"{baseEvt.DecodedDetail} [Blocked - No Patch Cable]",
+                AccentHex = "#757575"
+            });
+        }
+    }
+
+    private void EnqueueMonitorEvent(MidiMonitorEvent evt)
+    {
+        PendingMonitorEvents.Enqueue(evt);
+        while (PendingMonitorEvents.Count > 60)
+            PendingMonitorEvents.TryDequeue(out _);
+    }
+
+    public int GetPreferredChannelForOutput(string destPortName)
+    {
+        if (string.IsNullOrWhiteSpace(destPortName)) return 0;
+        if (_knownOutputs.TryGetValue(destPortName, out var port) && port.PreferredChannel > 0)
+            return port.PreferredChannel;
+        return _preferredPortChannels.TryGetValue(destPortName, out int ch) ? Math.Clamp(ch, 0, 16) : 0;
+    }
+
+    public void SetPreferredChannelForOutput(string destPortName, int channelZeroToSixteen, bool saveToDisk = true)
+    {
+        if (string.IsNullOrWhiteSpace(destPortName)) return;
+        int clamped = Math.Clamp(channelZeroToSixteen, 0, 16);
+        _preferredPortChannels[destPortName] = clamped;
+        if (_knownOutputs.TryGetValue(destPortName, out var port))
+        {
+            port.PreferredChannel = clamped;
+        }
+        if (saveToDisk)
+        {
+            SavePreferredPortChannelsToDisk();
+        }
+    }
+
+    private void LoadPreferredPortChannelsFromDisk()
+    {
+        try
+        {
+            if (File.Exists(_portChannelsPersistencePath))
+            {
+                string json = File.ReadAllText(_portChannelsPersistencePath);
+                var dict = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
+                if (dict != null)
+                {
+                    foreach (var kv in dict)
+                        _preferredPortChannels[kv.Key] = Math.Clamp(kv.Value, 0, 16);
+                }
+            }
+        }
+        catch
+        {
+            // Ignore IO errors
+        }
+    }
+
+    private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
+
+    private void SavePreferredPortChannelsToDisk()
+    {
+        var snapshot = _preferredPortChannels.ToArray();
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var dict = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var kv in snapshot)
+                    dict[kv.Key] = kv.Value;
+                string json = JsonSerializer.Serialize(dict, IndentedJsonOptions);
+                File.WriteAllText(_portChannelsPersistencePath, json);
+            }
+            catch
+            {
+                // Ignore IO errors
+            }
+        });
+    }
+
+    public void UpdateRoutesSnapshot(IEnumerable<MidiRouteModel> routes, bool saveToDisk = true)
+    {
+        var prev = _activeRoutesSnapshot;
+        var uiRoutes = routes.ToArray();
+
+        // Store immutable value-cloned routes in _activeRoutesSnapshot (sharing only atomic activity counters via source model reference)
+        // Wait: ProcessIncomingShortMidi calls route.RecordRouteActivityFromBackground(), so we keep the UI route reference
+        // AND store a parallel immutable value snapshot of the previous active state!
+        _activeRoutesSnapshot = uiRoutes;
+
+        // Remember any non-zero TargetChannelRemap as that synth's preferred MIDI channel
+        bool prefChanged = false;
+        foreach (var r in uiRoutes)
+        {
+            if (r.TargetChannelRemap > 0)
+            {
+                if (!_preferredPortChannels.TryGetValue(r.DestPortName, out int existingCh) || existingCh != r.TargetChannelRemap)
+                {
+                    _preferredPortChannels[r.DestPortName] = r.TargetChannelRemap;
+                    prefChanged = true;
+                }
+                if (_knownOutputs.TryGetValue(r.DestPortName, out var outPort))
+                {
+                    outPort.PreferredChannel = r.TargetChannelRemap;
+                }
+            }
+        }
+        if (prefChanged && saveToDisk)
+        {
+            SavePreferredPortChannelsToDisk();
+        }
+
+        // Compare against _lastActiveRouteStates (immutable value records) so in-place property edits are always detected
+        var currentStates = uiRoutes
+            .Where(r => r.IsEnabled && r.PassNotes)
+            .Select(r => new ActiveRouteNoteState(
+                r.SourcePortName,
+                r.DestPortName,
+                r.SourceChannelFilter,
+                r.TargetChannelRemap,
+                r.TransposeSemitones,
+                r.MinNote,
+                r.MaxNote))
+            .ToArray();
+
+        var oldStates = Interlocked.Exchange(ref _lastActiveRouteStates, currentStates);
+        foreach (var oldState in oldStates)
+        {
+            if (!currentStates.Contains(oldState) && _openOutputs.TryGetValue(oldState.DestPortName, out var outHolder))
+            {
+                SendPanicOnHandle(outHolder);
+            }
+        }
+
+        if (saveToDisk)
+            SaveRoutesToDisk(uiRoutes);
+    }
+
+    private readonly record struct ActiveRouteNoteState(
+        string SourcePortName,
+        string DestPortName,
+        int SourceChannelFilter,
+        int TargetChannelRemap,
+        int TransposeSemitones,
+        int MinNote,
+        int MaxNote);
+
+    private volatile ActiveRouteNoteState[] _lastActiveRouteStates = Array.Empty<ActiveRouteNoteState>();
+
+    public List<MidiRouteModel> LoadSavedRoutesOrDefault(IReadOnlyList<MidiPortModel> inputs, IReadOnlyList<MidiPortModel> outputs)
+    {
+        try
+        {
+            if (File.Exists(_routesPersistencePath))
+            {
+                string json = File.ReadAllText(_routesPersistencePath);
+                var saved = JsonSerializer.Deserialize<List<MidiRouteModel>>(json);
+                if (saved != null)
+                {
+                    foreach (var r in saved)
+                    {
+                        if (r.TargetChannelRemap > 0)
+                            SetPreferredChannelForOutput(r.DestPortName, r.TargetChannelRemap, false);
+                    }
+                    return saved;
+                }
+            }
+        }
+        catch
+        {
+            // Fall through to studio default
+        }
+
+        return CreateDefaultRoutesForHardware(inputs, outputs);
+    }
+
+    public static List<MidiRouteModel> CreateDefaultRoutesForHardware(IReadOnlyList<MidiPortModel> inputs, IReadOnlyList<MidiPortModel> outputs)
+    {
+        var routes = new List<MidiRouteModel>();
+
+        var launchkeyIn = inputs.FirstOrDefault(p => p.Name.StartsWith("Launchkey", StringComparison.OrdinalIgnoreCase))
+                          ?? inputs.FirstOrDefault(p => p.Category == MidiPortCategory.UsbController);
+        var tascamOut = outputs.FirstOrDefault(p => p.Category == MidiPortCategory.TascamDin);
+
+        if (launchkeyIn != null)
+        {
+            if (tascamOut != null)
+            {
+                routes.Add(new MidiRouteModel
+                {
+                    SourcePortName = launchkeyIn.Name,
+                    DestPortName = tascamOut.Name,
+                    IsEnabled = true
+                });
+            }
+
+            foreach (var synthOut in outputs.Where(o => o.Category == MidiPortCategory.UsbSynth).Take(4))
+            {
+                routes.Add(new MidiRouteModel
+                {
+                    SourcePortName = launchkeyIn.Name,
+                    DestPortName = synthOut.Name,
+                    IsEnabled = true
+                });
+            }
+        }
+
+        return routes;
+    }
+
+    private readonly object _diskWriteLock = new();
+
+    public void SaveRoutesToDisk(IEnumerable<MidiRouteModel> routes)
+    {
+        var clones = routes.Select(r => r.Clone()).ToArray();
+        _ = Task.Run(() =>
+        {
+            lock (_diskWriteLock)
+            {
+                try
+                {
+                    string json = JsonSerializer.Serialize(clones, IndentedJsonOptions);
+                    File.WriteAllText(_routesPersistencePath, json);
+                }
+                catch
+                {
+                    // Ignore IO errors
+                }
+            }
+        });
+    }
+
+    private void UpdateClockBpm()
+    {
+        long now = Stopwatch.GetTimestamp();
+        long prev = Interlocked.Exchange(ref _lastClockTickTimestamp, now);
+        Interlocked.Exchange(ref _lastClockReceivedMs, Environment.TickCount64);
+
+        if (prev > 0)
+        {
+            double dtSeconds = (now - prev) / (double)Stopwatch.Frequency;
+            if (dtSeconds > 0.004 && dtSeconds < 0.25)
+            {
+                double instantBpm = 60.0 / (dtSeconds * 24.0);
+                _smoothedClockBpm = _smoothedClockBpm <= 1.0
+                    ? instantBpm
+                    : (_smoothedClockBpm * 0.90) + (instantBpm * 0.10);
+            }
+        }
+    }
+
+    private static bool TryTransformShortMessage(
+        MidiRouteModel route,
+        byte status,
+        byte data1,
+        byte data2,
+        out uint outMsg,
+        out byte outStatus,
+        out byte outD1,
+        out byte outD2)
+    {
+        outStatus = status;
+        outD1 = data1;
+        outD2 = data2;
+        outMsg = 0;
+
+        if (status < 0x80)
+            return false;
+
+        if (status >= 0xF0)
+        {
+            if (!route.PassClockAndTransport)
+                return false;
+
+            outMsg = (uint)(status | (data1 << 8) | (data2 << 16));
+            return true;
+        }
+
+        int msgType = status & 0xF0;
+        int srcChannelOneBased = (status & 0x0F) + 1;
+
+        if (route.SourceChannelFilter > 0 && route.SourceChannelFilter != srcChannelOneBased)
+            return false;
+
+        switch (msgType)
+        {
+            case 0x80:
+            case 0x90:
+                if (!route.PassNotes)
+                    return false;
+                int low = Math.Min(route.MinNote, route.MaxNote);
+                int high = Math.Max(route.MinNote, route.MaxNote);
+                if (data1 < low || data1 > high)
+                    return false;
+                outD1 = (byte)Math.Clamp(data1 + route.TransposeSemitones, 0, 127);
+                if (msgType == 0x90 && data2 > 0)
+                    outD2 = route.ApplyVelocityCurve(data2);
+                break;
+
+            case 0xA0:
+                if (!route.PassAftertouch)
+                    return false;
+                outD1 = (byte)Math.Clamp(data1 + route.TransposeSemitones, 0, 127);
+                break;
+
+            case 0xB0:
+                if (!route.PassControlChange)
+                    return false;
+                int ccFrom = route.CcRemapFrom;
+                if (ccFrom >= 0 && data1 == ccFrom)
+                    outD1 = (byte)Math.Clamp(route.CcRemapTo, 0, 127);
+                break;
+
+            case 0xC0:
+                if (!route.PassProgramChange)
+                    return false;
+                break;
+
+            case 0xD0:
+                if (!route.PassAftertouch)
+                    return false;
+                break;
+
+            case 0xE0:
+                if (!route.PassPitchBend)
+                    return false;
+                break;
+        }
+
+        int dstChannelZeroBased = route.TargetChannelRemap > 0
+            ? Math.Clamp(route.TargetChannelRemap - 1, 0, 15)
+            : (srcChannelOneBased - 1);
+
+        outStatus = (byte)(msgType | dstChannelZeroBased);
+        outMsg = (uint)(outStatus | (outD1 << 8) | (outD2 << 16));
+        return true;
+    }
+
+    public void SendPanicToPort(string destPortName)
+    {
+        if (_openOutputs.TryGetValue(destPortName, out var outHolder))
+        {
+            SendPanicOnHandle(outHolder);
+            EnqueueMonitorEvent(new MidiMonitorEvent
+            {
+                Timestamp = DateTime.Now.ToString("HH:mm:ss.fff"),
+                Direction = "PANIC",
+                SourcePort = "CONSOLE PANIC",
+                DestPort = outHolder.Port.ShortDisplayName,
+                RawHex = "B0..BF 7B 00",
+                ChannelText = "1-16",
+                MessageType = "ALL OFF",
+                DecodedDetail = "CC#123 All Notes Off + CC#120 All Sound Off + Sustain Off",
+                AccentHex = "#FF5252"
+            });
+        }
+    }
+
+    public void SendGlobalPanic()
+    {
+        foreach (var kv in _openOutputs.Values)
+        {
+            SendPanicOnHandle(kv);
+        }
+
+        EnqueueMonitorEvent(new MidiMonitorEvent
+        {
+            Timestamp = DateTime.Now.ToString("HH:mm:ss.fff"),
+            Direction = "PANIC",
+            SourcePort = "GLOBAL PANIC",
+            DestPort = $"ALL OUTPUTS ({_openOutputs.Count})",
+            RawHex = "B0..BF 7B 00",
+            ChannelText = "1-16",
+            MessageType = "PANIC!",
+            DecodedDetail = "Sent All Notes Off (CC#123) + All Sound Off (CC#120) on Ch 1-16",
+            AccentHex = "#FF5252"
+        });
+    }
+
+    private static void SendPanicOnHandle(OpenOutputHandle outHolder)
+    {
+        lock (outHolder.WriteLock)
+        {
+            if (outHolder.Handle == IntPtr.Zero) return;
+            for (int ch = 0; ch < 16; ch++)
+            {
+                uint statusCc = (uint)(0xB0 | ch);
+                midiOutShortMsg(outHolder.Handle, statusCc | (64u << 8));
+                midiOutShortMsg(outHolder.Handle, statusCc | (120u << 8));
+                midiOutShortMsg(outHolder.Handle, statusCc | (123u << 8));
+                uint statusPb = (uint)(0xE0 | ch);
+                midiOutShortMsg(outHolder.Handle, statusPb | (0x00u << 8) | (0x40u << 16));
+            }
+        }
+        outHolder.Port.RecordActivityFromBackground("PANIC (All Notes Off)");
+    }
+
+    public void SendAuditionNote(string destPortName, int channelOneBased = 1, int note = 60, int velocity = 100)
+    {
+        if (!_openOutputs.TryGetValue(destPortName, out var outHolder) || outHolder.Handle == IntPtr.Zero)
+            return;
+
+        int ch = Math.Clamp(channelOneBased - 1, 0, 15);
+        byte statusOn = (byte)(0x90 | ch);
+        byte statusOff = (byte)(0x80 | ch);
+        uint msgOn = (uint)(statusOn | ((note & 0x7F) << 8) | ((velocity & 0x7F) << 16));
+        uint msgOff = (uint)(statusOff | ((note & 0x7F) << 8));
+
+        lock (outHolder.WriteLock)
+        {
+            if (outHolder.Handle != IntPtr.Zero)
+                midiOutShortMsg(outHolder.Handle, msgOn);
+        }
+        outHolder.Port.RecordActivityFromBackground($"Test {MidiRouteModel.FormatNoteName(note)} Ch{ch + 1}");
+
+        EnqueueMonitorEvent(BuildMonitorEvent("AUDITION TEST", outHolder.Port.ShortDisplayName, statusOn, (byte)note, (byte)velocity, "#00D4FF"));
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(240).ConfigureAwait(false);
+            lock (outHolder.WriteLock)
+            {
+                if (outHolder.Handle != IntPtr.Zero)
+                    midiOutShortMsg(outHolder.Handle, msgOff);
+            }
+        });
+    }
+
+    public static string FormatCompactSummary(byte status, byte data1, byte data2)
+    {
+        if (status >= 0xF0)
+        {
+            return status switch
+            {
+                0xF8 => "Clock (0xF8)",
+                0xFA => "Start (0xFA)",
+                0xFB => "Continue (0xFB)",
+                0xFC => "Stop (0xFC)",
+                _ => $"Sys 0x{status:X2}"
+            };
+        }
+
+        int msgType = status & 0xF0;
+        int ch = (status & 0x0F) + 1;
+
+        return msgType switch
+        {
+            0x90 when data2 > 0 => $"NoteOn {MidiRouteModel.FormatNoteName(data1)} v{data2} Ch{ch}",
+            0x80 or 0x90 => $"NoteOff {MidiRouteModel.FormatNoteName(data1)} Ch{ch}",
+            0xB0 => $"CC#{data1} val {data2} Ch{ch}",
+            0xC0 => $"Prog #{data1} Ch{ch}",
+            0xE0 => $"PitchBend {((data2 << 7) | data1) - 8192:+#;-#;0} Ch{ch}",
+            0xD0 => $"Aftertouch {data1} Ch{ch}",
+            0xA0 => $"PolyAT {MidiRouteModel.FormatNoteName(data1)} {data2} Ch{ch}",
+            _ => $"{status:X2} {data1:X2} {data2:X2}"
+        };
+    }
+
+    private static MidiMonitorEvent BuildMonitorEvent(string srcPort, string dstPort, byte status, byte data1, byte data2, string accent)
+    {
+        string rawHex = status >= 0xC0 && status < 0xE0
+            ? $"{status:X2} {data1:X2}"
+            : (status >= 0xF8 ? $"{status:X2}" : $"{status:X2} {data1:X2} {data2:X2}");
+
+        if (status >= 0xF0)
+        {
+            string sysType = status switch
+            {
+                0xF8 => "MIDI Clock",
+                0xFA or 0xFB or 0xFC => "Transport",
+                _ => "System"
+            };
+            string sysDetail = status switch
+            {
+                0xF8 => "24 PPQN Timing Tick",
+                0xFA => "START Playback",
+                0xFB => "CONTINUE Playback",
+                0xFC => "STOP Playback",
+                _ => $"Status 0x{status:X2}"
+            };
+            return new MidiMonitorEvent
+            {
+                Timestamp = DateTime.Now.ToString("HH:mm:ss.fff"),
+                Direction = "SYS",
+                SourcePort = srcPort,
+                DestPort = dstPort,
+                RawHex = rawHex,
+                ChannelText = "SYS",
+                MessageType = sysType,
+                DecodedDetail = sysDetail,
+                AccentHex = accent
+            };
+        }
+
+        int msgType = status & 0xF0;
+        int ch = (status & 0x0F) + 1;
+        string typeLabel;
+        string detail;
+
+        switch (msgType)
+        {
+            case 0x90 when data2 > 0:
+                typeLabel = "Note On";
+                detail = $"{MidiRouteModel.FormatNoteName(data1),-4} (Note {data1,3})  Vel: {data2,3}";
+                break;
+            case 0x80:
+            case 0x90:
+                typeLabel = "Note Off";
+                detail = $"{MidiRouteModel.FormatNoteName(data1),-4} (Note {data1,3})  Rel: {data2,3}";
+                break;
+            case 0xB0:
+                typeLabel = "Control Chg";
+                detail = $"CC #{data1,-3} ({GetCcName(data1)}) = {data2}";
+                break;
+            case 0xC0:
+                typeLabel = "Program Chg";
+                detail = $"Program #{data1 + 1} ( Raw {data1} )";
+                break;
+            case 0xE0:
+                typeLabel = "Pitch Bend";
+                int bend = ((data2 << 7) | data1) - 8192;
+                detail = $"Bend: {bend:+#;-#;0} (Raw {(data2 << 7) | data1})";
+                break;
+            case 0xD0:
+                typeLabel = "Chan Press";
+                detail = $"Pressure: {data1}";
+                break;
+            case 0xA0:
+                typeLabel = "Poly Press";
+                detail = $"{MidiRouteModel.FormatNoteName(data1)} Pressure: {data2}";
+                break;
+            default:
+                typeLabel = $"0x{msgType:X2}";
+                detail = $"D1={data1} D2={data2}";
+                break;
+        }
+
+        return new MidiMonitorEvent
+        {
+            Timestamp = DateTime.Now.ToString("HH:mm:ss.fff"),
+            Direction = "MIDI",
+            SourcePort = srcPort,
+            DestPort = dstPort,
+            RawHex = rawHex,
+            ChannelText = $"CH {ch,2}",
+            MessageType = typeLabel,
+            DecodedDetail = detail,
+            AccentHex = accent
+        };
+    }
+
+    private static string GetCcName(byte cc) => cc switch
+    {
+        1 => "Mod Wheel",
+        2 => "Breath",
+        5 => "Portamento",
+        7 => "Volume",
+        10 => "Pan",
+        11 => "Expression",
+        64 => "Sustain",
+        71 => "Resonance",
+        74 => "Cutoff/Bright",
+        91 => "Reverb",
+        93 => "Chorus",
+        120 => "All Sound Off",
+        123 => "All Notes Off",
+        _ => "Controller"
+    };
+
+    private void CloseAllPortsNoLock()
+    {
+        foreach (var kv in _openInputs.Values)
+        {
+            kv.IsClosing = true;
+            try
+            {
+                if (kv.Handle != IntPtr.Zero)
+                {
+                    midiInStop(kv.Handle);
+                    midiInReset(kv.Handle);
+                    midiInClose(kv.Handle);
+                }
+            }
+            catch { }
+            finally
+            {
+                kv.Handle = IntPtr.Zero;
+                kv.Port.SetOpenStateFromBackground(false);
+            }
+        }
+        _openInputs.Clear();
+
+        foreach (var kv in _openOutputs.Values)
+        {
+            lock (kv.WriteLock)
+            {
+                try
+                {
+                    if (kv.Handle != IntPtr.Zero)
+                    {
+                        midiOutReset(kv.Handle);
+                        midiOutClose(kv.Handle);
+                    }
+                }
+                catch { }
+                finally
+                {
+                    kv.Handle = IntPtr.Zero;
+                    kv.Port.SetOpenStateFromBackground(false);
+                }
+            }
+        }
+        _openOutputs.Clear();
+        _openOutputsArray = Array.Empty<OpenOutputHandle>();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _routerWakeEvent.Set();
+        lock (_portLifecycleLock)
+        {
+            CloseAllPortsNoLock();
+        }
+    }
+}
